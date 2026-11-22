@@ -1,58 +1,27 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
+
 import '../app_info.dart';
-
-import '../db/app_database.dart';
 import '../db/user_repository.dart';
-import '../models/misc_entities.dart';
-import '../services/credit_guard.dart';
-import '../services/demo_mode.dart';
-import '../services/payment_info.dart';
-import '../services/credit_override_policy.dart';
-import '../services/staff_auth.dart';
 import '../services/app_lock.dart';
+import '../services/backup_service.dart';
 import '../services/biometric.dart';
-import '../services/printer_service.dart';
-import '../services/usb_printer.dart';
-import '../utils/escpos.dart';
+import '../services/crash_handler.dart';
 import '../services/session.dart';
+import '../sync/gym_sync.dart';
 import '../theme/theme_manager.dart';
-import '../utils/due_days.dart';
+import '../utils/fmt.dart';
 import '../utils/loc.dart';
-import '../utils/stock_policy.dart';
-import '../utils/password_hasher.dart';
-import '../widgets/menu_row.dart';
-import '../widgets/premium_header.dart';
-import '../widgets/role_guard.dart';
-import '../widgets/sync_section.dart';
-import '../sync/sync_repository.dart';
-import 'about_screen.dart';
-import 'backup_export_screen.dart';
-import 'cash_screen.dart';
-import 'expense_screen.dart';
-import 'items_screen.dart';
+import '../widgets/refresh.dart';
+import '../widgets/ui.dart';
+import 'cloud_setup_screen.dart';
 import 'login_screen.dart';
-import 'party_dashboard_screen.dart';
-import 'purchase_screen.dart';
-import 'recycle_bin_screen.dart';
-import 'reports_screen.dart';
-import 'sale_screen.dart';
-import 'setup_guide_screen.dart';
-import 'shell_ledger_screen.dart';
-import 'shop_rent_screen.dart';
-import 'user_management_screen.dart';
-import 'utility_bills_screen.dart';
-import 'workers_screen.dart';
-import 'zakat_screen.dart';
-import '../services/permissions.dart';
-import '../widgets/permission_guard.dart';
+import 'users_screen.dart';
 
-/// Receipt footer / address / currency / tax fields Kotlin mein user ke kehne par hata di gayi thin — yahan bhi nahi
-/// (stored receipt_footer value print par ab bhi parha jata hai, jaisa Kotlin mein).
-/// Mirrors SettingsActivity.kt (pehla hissa): Shop Info, Login method, Update Login,
-/// Language, Manage Users, Logout.
-/// Login method: password / fingerprint / both / none. Dark mode switch.
-/// Printer (Phase 12) done — Bluetooth 58/80mm. Cloud Sync (Phase 10): `SyncSection` (Sync Now / Setup / History).
-/// OTP login (Phase 10): login method 'otp'. Backup row: BackupExportScreen (admin/manager).
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -61,715 +30,335 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _repo = UserRepository.instance;
-  final _shopName = TextEditingController();
-  final _shopOwner = TextEditingController();
-  final _shopPhone = TextEditingController();
-  final _paymentInfo = TextEditingController(); // Raast / JazzCash / bank — reminders ke neeche
-  final _dueDays = TextEditingController(); // default udhaar muddat (din)
-  final _newUsername = TextEditingController();
-  final _newPassword = TextEditingController();
   String _loginMethod = 'password';
-  String _headerShop = 'My Shop'; // Kotlin loadHeaderShopName: saved shop_name, warna "My Shop"
-  String _printerName = '';
-  int _dots = EscPos.defaultDotsWidth;
-  bool _safePrint = false;
-  bool _allowShort = true;
-  bool _compatPrint = false;
-  bool _testing = false;
+  bool _bio = false;
+  bool _syncOn = false;
+  String? _crash;
 
   @override
   void initState() {
     super.initState();
     _load();
-    Permissions.refresh().then((_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    for (final c in [_shopName, _shopOwner, _shopPhone, _paymentInfo, _dueDays, _newUsername, _newPassword]) {
-      c.dispose();
-    }
-    super.dispose();
   }
 
   Future<void> _load() async {
-    final shopName = await _repo.getSetting('shop_name') ?? '';
-    final shopOwner = await _repo.getSetting('shop_owner') ?? '';
-    final shopPhone = await _repo.getSetting('shop_phone') ?? '';
-    final paymentInfo = await PaymentInfo.load();
-    final dueDays = parseShopDueDays(await _repo.getSetting(kDueDaysSetting));
-    if (!mounted) return; // screen band ho chuki => disposed controller na chhedo
-    _shopName.text = shopName;
-    _shopOwner.text = shopOwner;
-    _shopPhone.text = shopPhone;
-    _paymentInfo.text = paymentInfo;
-    _dueDays.text = dueDays.toString();
-    if (_shopName.text.trim().isNotEmpty) _headerShop = _shopName.text.trim();
-    final pr = await PrinterService.instance.selected();
-    _printerName = pr?.name ?? '';
-    _dots = await PrinterService.instance.dotsWidth();
-    _allowShort = await StockPolicy.load();
-    _safePrint = await PrinterService.instance.safeMode();
-    _compatPrint = await PrinterService.instance.compatibleMode();
-    final m = await _repo.getSetting('login_method') ?? 'password';
-    if (mounted) setState(() => _loginMethod = const ['none', 'fingerprint', 'both', 'otp'].contains(m) ? m : 'password');
-  }
-
-  void _toast(String m) {
+    final m = await UserRepository.instance.getSetting('login_method') ?? 'password';
+    final bio = await Biometric.isAvailable();
+    final on = await GymSync.isConfigured();
+    final crash = await CrashHandler.getLastCrash();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+    setState(() {
+      _loginMethod = m;
+      _bio = bio;
+      _syncOn = on;
+      _crash = crash;
+    });
   }
 
-  Future<void> _saveShop() async {
-    await _repo.setSetting('shop_name', _shopName.text.trim());
-    await _repo.setSetting('shop_owner', _shopOwner.text.trim());
-    await _repo.setSetting('shop_phone', _shopPhone.text.trim());
-    await PaymentInfo.save(_paymentInfo.text);
-    await _repo.setSetting(kDueDaysSetting, parseShopDueDays(_dueDays.text).toString());
-    if (_shopName.text.trim().isNotEmpty && mounted) setState(() => _headerShop = _shopName.text.trim());
-    _toast(Loc.t('Settings saved', 'سیٹنگز محفوظ ہو گئیں'));
-  }
-
-
-  // ------------------------------------------------------------------ Printer
-
-  Future<void> _selectPrinter() async {
-    final svc = PrinterService.instance;
-    if (PrinterService.isDesktop) return _selectDesktopPrinter();
-    if (!PrinterService.supported) return _toast(Loc.t('Printing needs Android, iOS or Windows', 'پرنٹنگ کے لیے اینڈرائیڈ، آئی او ایس یا ونڈوز چاہیے'));
-    // Bluetooth (paired) + Android par jude hue USB printers — ek hi list.
-    final bluetooth = <PrinterInfo>[];
-    final btGranted = await svc.hasPermission();
-    if (btGranted) bluetooth.addAll(await svc.pairedPrinters());
-    final usb = await UsbPrinter.list();
-    if (!mounted) return;
-    if (bluetooth.isEmpty && usb.isEmpty) {
-      if (!btGranted && !UsbPrinter.supported) {
-        return _toast(Loc.t('Bluetooth permission dein, phir dobara SELECT PRINTER dabayein', 'بلوٹوتھ کی اجازت دیں، پھر دوبارہ دبائیں'));
-      }
-      return _toast(Loc.t(
-          'Koi printer nahi mila. Bluetooth printer ko phone ki Bluetooth Settings se pair karein, ya USB printer cable se jodein.',
-          'کوئی پرنٹر نہیں ملا۔ بلوٹوتھ پرنٹر جوڑیں یا یو ایس بی کیبل لگائیں۔'));
-    }
-    final picked = await showDialog<PrinterInfo>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: Text(Loc.t('Select Printer', 'پرنٹر منتخب کریں')),
-        children: [
-          for (final d in bluetooth) SimpleDialogOption(onPressed: () => Navigator.pop(ctx, d), child: Text('🔵  ${d.name}')),
-          for (final u in usb)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, PrinterInfo('USB ${u.name}', u.address)),
-              child: Text('🔌  USB: ${u.name}'),
-            ),
-        ],
-      ),
-    );
-    if (picked == null) return;
-    // USB: ijazat abhi le lein taake pehli print par dialog na aaye.
-    final id = UsbPrinter.parse(picked.mac);
-    if (id != null && !await UsbPrinter.requestPermission(id.vid, id.pid)) {
-      return _toast(Loc.t('USB ki ijazat nahi mili — Allow dabayein', 'یو ایس بی کی اجازت نہیں ملی'));
-    }
-    await svc.savePrinter(picked.name, picked.mac);
-    if (mounted) setState(() => _printerName = picked.name);
-    _toast(Loc.t('Printer saved: ${picked.name}', 'پرنٹر محفوظ: ${picked.name}'));
-  }
-
-  /// Windows: installed printers ki list + "Network printer (IP)".
-  Future<void> _selectDesktopPrinter() async {
-    final svc = PrinterService.instance;
-    List<PrinterInfo> installed = [];
-    try {
-      installed = await svc.systemPrinters();
-    } catch (_) {}
-    if (!mounted) return;
-    const networkMarker = PrinterInfo('__network__', '');
-    final picked = await showDialog<PrinterInfo>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: Text(Loc.t('Select Printer', 'پرنٹر منتخب کریں')),
-        children: [
-          for (final d in installed)
-            SimpleDialogOption(onPressed: () => Navigator.pop(ctx, d), child: Text('🖨  ${d.name}')),
-          SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, networkMarker),
-            child: Text(Loc.t('🌐  Network printer (IP address)…', '🌐  نیٹ ورک پرنٹر (IP)…')),
-          ),
-        ],
-      ),
-    );
-    if (picked == null) return;
-    if (picked.name != networkMarker.name) {
-      await svc.savePrinter(picked.name, picked.mac);
-      if (mounted) setState(() => _printerName = picked.name);
-      return _toast(Loc.t('Printer saved: ${picked.name}', 'پرنٹر محفوظ: ${picked.name}'));
-    }
-    final ctrl = TextEditingController();
-    final input = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(Loc.t('Network printer', 'نیٹ ورک پرنٹر')),
-        content: TextField(
-          controller: ctrl,
+  Future<void> _editText(String key, String label, String current, {bool number = false, int lines = 1}) async {
+    final c = TextEditingController(text: current);
+    await showGymSheet<void>(
+      context,
+      title: label,
+      builder: (ctx) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        TextField(
+          controller: c,
           autofocus: true,
-          decoration: const InputDecoration(hintText: '192.168.1.50  (ya 192.168.1.50:9100)'),
+          minLines: lines,
+          maxLines: lines == 1 ? 1 : lines + 4,
+          keyboardType: number ? TextInputType.number : (lines > 1 ? TextInputType.multiline : TextInputType.text),
+          decoration: ThemeManager.field(label),
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(Loc.t('Cancel', 'منسوخ'))),
-          TextButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: Text(Loc.t('Save', 'محفوظ'))),
+        if (key == 'reminder_template') ...[
+          const SizedBox(height: 8),
+          Text('{name} {gym} {plan} {date} {days} {dues}', style: TextStyle(color: pal.muted, fontSize: 12)),
         ],
-      ),
+        const SizedBox(height: 16),
+        GoldButton(
+          label: Loc.t('SAVE', 'محفوظ کریں'),
+          onPressed: () async {
+            await GymSettings.set(key, c.text.trim());
+            if (ctx.mounted) Navigator.pop(ctx);
+          },
+        ),
+      ]),
     );
-    ctrl.dispose();
-    if (input == null) return;
-    final addr = PrinterService.tcpAddress(input);
-    if (addr == null) {
-      return _toast(Loc.t('IP address theek nahi (misaal: 192.168.1.50 ya 192.168.1.50:9100)', 'IP ایڈریس درست نہیں'));
-    }
-    final label = 'Network ${addr.substring(PrinterService.tcpPrefix.length)}';
-    await svc.savePrinter(label, addr);
-    if (mounted) setState(() => _printerName = label);
-    _toast(Loc.t('Printer saved: $label', 'پرنٹر محفوظ: $label'));
+    if (mounted) setState(() {});
   }
 
-  Future<void> _testPrint() async {
-    if (_testing) return;
-    setState(() => _testing = true);
-    final err = await PrinterService.instance.testPrint(shopName: _shopName.text.trim().isEmpty ? 'My Shop' : _shopName.text.trim());
-    if (!mounted) return;
-    setState(() => _testing = false);
-    _toast(err ?? Loc.t('Test print sent', 'ٹیسٹ پرنٹ بھیج دیا'));
-  }
-
-  Future<void> _testPrintText() async {
-    if (_testing) return;
-    setState(() => _testing = true);
-    final err = await PrinterService.instance.testPrintText(shopName: _shopName.text.trim());
-    if (!mounted) return;
-    setState(() => _testing = false);
-    _toast(err ?? Loc.t('Plain text test sent', 'سادہ ٹیکسٹ ٹیسٹ بھیج دیا'));
-  }
-
-  Future<void> _pickWidth() async {
-    final options = [384, 448, 512, 576];
-    final labels = {
-      384: '384 dots — standard 58mm (recommended)',
-      448: '448 dots',
-      512: '512 dots',
-      576: '576 dots — 80mm printer',
-    };
-    final v = await showDialog<int>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: Text(Loc.t('Print Width', 'پرنٹ چوڑائی')),
-        children: [
-          for (final o in options)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, o),
-              child: Text('${o == _dots ? '● ' : '○ '}${labels[o]}'),
-            ),
-        ],
-      ),
-    );
-    if (v == null) return;
-    await PrinterService.instance.saveDotsWidth(v);
-    if (mounted) setState(() => _dots = v);
-    _toast(Loc.t('Print width $v dots saved. TEST PRINT karke check karein.', 'چوڑائی $v محفوظ۔ ٹیسٹ پرنٹ کر کے دیکھیں۔'));
-  }
-
-  Future<void> _setLoginMethod(String m) async {
-    // Lockout se bachao: fingerprint wale modes tabhi jab device par fingerprint enrolled ho.
-    if ((m == 'fingerprint' || m == 'both') && !await Biometric.isAvailable()) {
-      return _toast(Loc.t('No fingerprint set up on this device', 'اس ڈیوائس پر فنگر پرنٹ سیٹ نہیں'));
-    }
-    await _repo.setSetting('login_method', m);
+  Future<void> _setLogin(String m) async {
+    await UserRepository.instance.setSetting('login_method', m);
     AppLock.instance.updateCachedLoginMethod(m);
-    if (mounted) setState(() => _loginMethod = m);
+    setState(() => _loginMethod = m);
   }
 
-  Future<void> _updateLogin() async {
-    final current = Session.username ?? '';
-    if (current.isEmpty) return _toast(Loc.t('No session, please login again', 'لاگ اِن سیشن نہیں ملا، دوبارہ لاگ اِن کریں'));
-    final user = await _repo.find(current);
-    if (user == null) return _toast(Loc.t('User not found', 'یوزر نہیں ملا'));
+  Future<void> _export() async {
+    try {
+      final msg = await BackupService.exportBackup();
+      if (mounted) toast(context, msg);
+    } catch (e) {
+      if (mounted) toast(context, 'Backup failed: $e');
+    }
+  }
 
-    final newName = _newUsername.text.trim();
-    final newPass = _newPassword.text;
-    if (newName.contains(' ')) return _toast(Loc.t('Username must not contain spaces', 'یوزر نیم میں خالی جگہ نہیں ہونی چاہیے'));
-    if (newPass.isNotEmpty && newPass.length < 6) return _toast(Loc.t('Password must be at least 6 characters', 'پاس ورڈ کم از کم 6 حروف کا ہو'));
-    if (newName.isEmpty && newPass.isEmpty) {
-      return _toast(Loc.t('Enter a new username or password', 'نیا یوزر نیم یا پاس ورڈ لکھیں'));
-    }
-    final finalName = newName.isNotEmpty ? newName : user.username;
-    if (finalName != user.username && await _repo.find(finalName) != null) {
-      return _toast(Loc.t('Username already exists', 'یہ یوزر نیم پہلے سے موجود ہے'));
-    }
-    final updated = User(
-      username: finalName,
-      displayName: user.displayName,
-      role: user.role,
-      passwordHash: newPass.isNotEmpty ? await PasswordHasher.hash(newPass) : user.passwordHash,
-      active: true,
-      phone: user.phone,
+  Future<void> _restore() async {
+    final ok = await confirm(
+      context,
+      Loc.t('Restore from backup?', 'بیک اپ سے بحال کریں؟'),
+      Loc.t('ALL current data on this device will be replaced by the backup file. A safety copy is kept first.',
+          'اس ڈیوائس کا موجودہ سارا ڈیٹا بیک اپ فائل سے بدل جائے گا۔ پہلے ایک حفاظتی کاپی بن جائے گی۔'),
+      yes: Loc.t('Choose file', 'فائل چنیں'),
+      danger: true,
     );
-    await _repo.rename(user, updated);
-    await Session.start(updated);
-    _newUsername.clear();
-    _newPassword.clear();
-    setState(() {});
-    _toast(Loc.t('Login updated', 'لاگ اِن اپڈیٹ ہو گیا'));
-    // Secure cloud login ON: cloud password alag hai — purana cloud password server par check hota hai.
-    if (newPass.isNotEmpty && await StaffAuth.isEnabled()) {
-      if (finalName != user.username) {
-        _toast(Loc.t('Cloud username/password not changed (username changed). Ask your admin to update the cloud account.',
-            'کلاؤڈ یوزر نیم/پاس ورڈ نہیں بدلا (یوزر نیم بدلا ہے)۔ ایڈمن سے کلاؤڈ اکاؤنٹ اپڈیٹ کروائیں۔'));
-      } else {
-        final old = await _askCloudPassword();
-        if (old != null && old.isNotEmpty) {
-          final ok = await StaffAuth.changeMyPassword(user.username, old, newPass);
-          _toast(ok
-              ? Loc.t('Cloud password changed', 'کلاؤڈ پاس ورڈ بدل گیا')
-              : Loc.t('Cloud password NOT changed: ${StaffAuth.lastError}', 'کلاؤڈ پاس ورڈ نہیں بدلا: ${StaffAuth.lastError}'));
-        } else {
-          _toast(Loc.t('Cloud password not changed (still the old one)', 'کلاؤڈ پاس ورڈ نہیں بدلا (پرانا ہی ہے)'));
-        }
+    if (!ok) return;
+    try {
+      final msg = await BackupService.restoreBackup();
+      if (msg == null || !mounted) return;
+      toast(context, msg);
+      if (msg.startsWith('Restore complete')) {
+        await Session.clear();
+        if (!mounted) return;
+        Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
       }
+    } catch (e) {
+      if (mounted) toast(context, 'Restore failed: $e');
     }
   }
 
-  Future<String?> _askCloudPassword() async {
-    if (!mounted) return null;
-    final field = TextEditingController();
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(Loc.t('Change cloud password', 'کلاؤڈ پاس ورڈ بدلیں')),
-        content: TextField(
-          controller: field,
-          obscureText: true,
-          decoration: InputDecoration(hintText: Loc.t('Current cloud password', 'موجودہ کلاؤڈ پاس ورڈ')),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(Loc.t('Skip', 'چھوڑیں'))),
-          FilledButton(onPressed: () => Navigator.pop(ctx, field.text), child: Text(Loc.t('Change', 'بدلیں'))),
-        ],
-      ),
-    );
-  }
-
-  /// Demo dukaan on / off. Pehle chalti sync ruke, DB band ho, session saaf ho; phir flag badalte hi
-  /// MaterialApp (key mein demo) naya banta hai aur login screen nayi file se khulti hai.
-  Future<void> _switchDemo(bool on) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(on ? Loc.t('Open Demo shop?', 'ڈیمو دکان کھولیں؟') : Loc.t('Exit Demo?', 'ڈیمو بند کریں؟')),
-        content: Text(on
-            ? Loc.t(
-                'The app will switch to a separate practice shop. First time, create a demo admin user. '
-                    'Sync and backups stay off until you exit Demo. Your real shop is not changed.',
-                'ایپ ایک الگ پریکٹس دکان پر چلی جائے گی۔ پہلی بار ڈیمو ایڈمن یوزر بنائیں۔ '
-                    'ڈیمو بند کرنے تک سنک اور بیک اپ بند رہیں گے۔ اصل دکان میں کچھ نہیں بدلے گا۔')
-            : Loc.t('Back to the real shop. Log in with your real password.',
-                'اصل دکان پر واپس۔ اپنے اصل پاس ورڈ سے لاگ اِن کریں۔')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(Loc.t('Cancel', 'منسوخ کریں'))),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(Loc.t('Continue', 'جاری رکھیں'))),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    await SyncRepository.waitIdle();
-    await AppDatabase.instance.close();
-    await Session.clear();
-    // Is ke baad yeh screen dispose ho jati hai (MaterialApp ka key badalta hai) — context ab use nahi.
-    await DemoMode.setEnabled(on);
-  }
-
-  Future<void> _logout() async {
-    await Session.clear();
+  Future<void> _autoBackups() async {
+    final files = await BackupService.autoBackups();
     if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
-  }
-
-  /// [collapsible] = true: title par tap se khulta/band hota hai (shuru mein band) — lambi Settings ko chhota rakhne ke liye.
-  Widget _card(String title, IconData icon, List<Widget> children, {bool collapsible = false}) {
-    final header = Row(children: [
-      Icon(icon, color: ThemeManager.palette.navyInk),
-      const SizedBox(width: 8),
-      Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
-    ]);
-    // Hanna Pharmacy POS: har card band rehta hai, title par tap se khulta hai (Settings chhoti aur saaf).
-    if (collapsible || AppInfo.pharmacyMode) {
-      return Card(
-        margin: const EdgeInsets.only(bottom: 14),
-        clipBehavior: Clip.antiAlias,
-        child: Theme(
-          // ExpansionTile ki upar/neeche ki lakeerein hatao (Card ke andar saaf dikhe).
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: ExpansionTile(
-            key: PageStorageKey<String>('settings_card_$title'),
-            initiallyExpanded: false,
-            maintainState: true, // band karne par bhi text fields ka likha hua na jaye
-            tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            expandedCrossAxisAlignment: CrossAxisAlignment.start,
-            title: header,
-            children: children,
-          ),
+    await showGymSheet<void>(
+      context,
+      title: Loc.t('Automatic backups (on this device)', 'خودکار بیک اپ (اس ڈیوائس پر)'),
+      builder: (ctx) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(
+          Loc.t('One copy is saved every day (last 7 kept). Share one to keep it safe outside the phone.',
+              'روز ایک کاپی بنتی ہے (آخری 7 رہتی ہیں)۔ فون سے باہر محفوظ رکھنے کے لیے شیئر کریں۔'),
+          style: TextStyle(color: pal.muted),
         ),
-      );
-    }
-    return Card(
-      margin: const EdgeInsets.only(bottom: 14),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          header,
-          const SizedBox(height: 12),
-          ...children,
-        ]),
-      ),
+        const SizedBox(height: 10),
+        if (files.isEmpty) Text(Loc.t('None yet', 'ابھی کوئی نہیں'), style: TextStyle(color: pal.muted)),
+        for (final f in files)
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.inventory_2_outlined, color: pal.gold),
+            title: Text(p.basename(f.path), style: TextStyle(color: pal.ink, fontSize: 13.5)),
+            subtitle: Text('${(f.lengthSync() / 1024).toStringAsFixed(0)} KB', style: TextStyle(color: pal.muted, fontSize: 12)),
+            trailing: IconButton(
+              icon: Icon(Icons.share, color: pal.gold),
+              onPressed: () => BackupService.shareFile(File(f.path)),
+            ),
+          ),
+      ]),
     );
   }
 
-  Widget _tf(TextEditingController c, String label, {bool obscure = false, bool enabled = true, bool number = false}) => Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        child: TextField(
-          controller: c, obscureText: obscure, enabled: enabled,
-          keyboardType: number ? TextInputType.number : null,
-          decoration: InputDecoration(labelText: label, filled: true, fillColor: ThemeManager.palette.fieldFill,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+  Widget _tile(IconData icon, String title, String subtitle, {VoidCallback? onTap, Widget? trailing, Color? color}) => ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(color: (color ?? pal.gold).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+          child: Icon(icon, color: color ?? pal.gold, size: 20),
         ),
+        title: Text(title, style: TextStyle(color: pal.ink, fontWeight: FontWeight.w700)),
+        subtitle: subtitle.isEmpty
+            ? null
+            : Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: pal.muted, fontSize: 12.5)),
+        trailing: trailing ?? (onTap == null ? null : Icon(Icons.chevron_right, color: pal.muted)),
+        onTap: onTap,
       );
-
-  void _open(Widget screen) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
-
-  /// Kotlin SettingsActivity ke upar wali link rows (Parties, Items, Reports, Sale, Purchase, Expense,
-  /// Cash & Bank, Shell Ledger) — usi tarteeb mein; role gates Dashboard ke barabar.
-  List<Widget> _linkRows() {
-    final p = ThemeManager.palette;
-    Widget row(IconData icon, String en, String ur, Widget screen, {Color? color}) => MenuRow(
-          icon: icon,
-          label: Loc.t(en, ur),
-          iconColor: color ?? p.teal,
-          chevronIcon: Icons.chevron_right,
-          showChevron: true,
-          onTap: () => _open(screen),
-        );
-    return [
-      row(Icons.people_outline, 'Parties', 'پارٹیز', const PartyDashboardScreen()),
-      row(Icons.list_alt, 'Items', 'آئٹمز', const ItemsScreen()),
-      if (Permissions.canAnyReport()) row(Icons.trending_up, 'Reports', 'رپورٹس', const ReportsScreen()),
-      row(Icons.receipt_outlined, 'Sale', 'سیل', const SaleScreen()),
-      if (Session.isAdmin)
-        row(Icons.shopping_cart_outlined, 'Purchase', 'خریداری',
-            const RoleGuard(allowed: {'admin'}, child: PurchaseScreen())),
-      if (Permissions.can('expense'))
-        row(Icons.business_center_outlined, 'Expense', 'اخراجات',
-            const PermissionGuard(permission: 'expense', child: ExpenseScreen()), color: p.navyInk),
-      if (Session.isAdminOrManager)
-        row(Icons.storefront_outlined, 'Shop Rents', 'دکانوں کا کرایہ',
-            const RoleGuard(allowed: {'admin', 'manager'}, child: ShopRentScreen()), color: p.navyInk),
-      if (Session.isAdminOrManager)
-        row(Icons.badge_outlined, 'Workers', 'ورکرز',
-            const RoleGuard(allowed: {'admin', 'manager'}, child: WorkersScreen()), color: p.navyInk),
-      if (Session.isAdminOrManager)
-        row(Icons.receipt_long_outlined, 'Utility Bills', 'یوٹیلیٹی بلز',
-            const RoleGuard(allowed: {'admin', 'manager'}, child: UtilityBillsScreen()), color: p.navyInk),
-      if (Permissions.can('cash_register'))
-        row(Icons.account_balance_outlined, 'Cash & Bank', 'کیش اور بینک',
-            const PermissionGuard(permission: 'cash_register', child: CashScreen()), color: p.navyInk),
-      if (!AppInfo.pharmacyMode && Permissions.can('zakat'))
-        row(Icons.volunteer_activism_outlined, 'Zakat', 'زکوٰۃ',
-            const PermissionGuard(permission: 'zakat', child: ZakatScreen()), color: p.navyInk),
-      if (!AppInfo.pharmacyMode && Permissions.can('shell_ledger'))
-        row(Icons.inventory_2_outlined, 'Shell Ledger', 'شیل لیجر',
-            const PermissionGuard(permission: 'shell_ledger', child: ShellLedgerScreen()), color: p.navyInk),
-    ];
-  }
 
   @override
   Widget build(BuildContext context) {
-    final admin = Session.isAdmin;
+    final canEdit = Session.canManage;
     return Scaffold(
-      backgroundColor: ThemeManager.palette.bg,
-      appBar: AppBar(backgroundColor: ThemeManager.palette.navy, foregroundColor: Colors.white, title: Text(Loc.t('Settings', 'سیٹنگز'))),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        PremiumHeader(title: _headerShop, subtitle: Loc.t('POINT OF SALE', 'پوائنٹ آف سیل')),
-        ..._linkRows(),
-        const SizedBox(height: 6),
-        if (admin)
-          _card(Loc.t('Shop Information', 'دکان کی معلومات'), Icons.store, [
-            _tf(_shopName, Loc.t('Shop Name', 'دکان کا نام')),
-            _tf(_shopOwner, Loc.t('Owner Name', 'مالک کا نام')),
-            _tf(_shopPhone, Loc.t('Phone', 'فون')),
-            _tf(_dueDays, Loc.t('Default credit period (days, 0 = off)', 'ڈیفالٹ ادھار مدت (دن، 0 = بند)'), number: true),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: TextField(
-                controller: _paymentInfo,
-                minLines: 2,
-                maxLines: 5,
-                decoration: InputDecoration(
-                  labelText: Loc.t('Payment details for reminders', 'یاد دہانی میں ادائیگی کی تفصیل'),
-                  hintText: 'Raast ID: 03001234567\nJazzCash: 03001234567 (Owner)\nBank: Meezan PK00MEZN0000000000000000',
-                  helperText: Loc.t('Added under every WhatsApp due reminder', 'ہر واٹس ایپ یاد دہانی کے نیچے لگے گا'),
-                  filled: true,
-                  fillColor: ThemeManager.palette.fieldFill,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      backgroundColor: pal.bg,
+      appBar: gymAppBar(Loc.t('Settings', 'سیٹنگز')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 40), children: [
+            SectionTitle(Loc.t('Gym profile', 'جم پروفائل')),
+            PCard(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(children: [
+                _tile(Icons.fitness_center, Loc.t('Gym name', 'جم کا نام'), GymSettings.gymName,
+                    onTap: canEdit ? () => _editText('gym_name', Loc.t('Gym name', 'جم کا نام'), GymSettings.gymName) : null),
+                _tile(Icons.short_text, Loc.t('Tagline', 'ٹیگ لائن'), GymSettings.gymTagline,
+                    onTap: canEdit ? () => _editText('gym_tagline', Loc.t('Tagline', 'ٹیگ لائن'), GymSettings.gymTagline) : null),
+                _tile(Icons.phone_outlined, Loc.t('Gym phone', 'جم کا فون'), GymSettings.gymPhone,
+                    onTap: canEdit ? () => _editText('gym_phone', Loc.t('Gym phone', 'جم کا فون'), GymSettings.gymPhone) : null),
+                _tile(Icons.place_outlined, Loc.t('Address', 'پتہ'), GymSettings.gymAddress,
+                    onTap: canEdit ? () => _editText('gym_address', Loc.t('Address', 'پتہ'), GymSettings.gymAddress) : null),
+              ]),
+            ),
+            SectionTitle(Loc.t('Membership rules', 'ممبرشپ کے اصول')),
+            PCard(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(children: [
+                _tile(Icons.badge_outlined, Loc.t('Member ID prefix', 'ممبر آئی ڈی کا شروع'), '${GymSettings.memberPrefix}-0001',
+                    onTap: canEdit
+                        ? () => _editText('member_prefix', Loc.t('Member ID prefix (e.g. GM)', 'آئی ڈی کا شروع (مثلاً GM)'), GymSettings.memberPrefix)
+                        : null),
+                _tile(Icons.how_to_reg_outlined, Loc.t('Default admission fee', 'داخلہ فیس'), Fmt.money(GymSettings.admissionFee),
+                    onTap: canEdit
+                        ? () => _editText('admission_fee', Loc.t('Default admission fee', 'داخلہ فیس'),
+                            GymSettings.admissionFee.toStringAsFixed(0), number: true)
+                        : null),
+                _tile(Icons.notifications_active_outlined, Loc.t('Reminder before expiry', 'ختم ہونے سے پہلے یاد دہانی'),
+                    Loc.t('${GymSettings.reminderDays} days', '${GymSettings.reminderDays} دن'),
+                    onTap: canEdit
+                        ? () => _editText('reminder_days', Loc.t('Days before expiry', 'ختم ہونے سے کتنے دن پہلے'), '${GymSettings.reminderDays}',
+                            number: true)
+                        : null),
+                _tile(Icons.currency_rupee, Loc.t('Currency', 'کرنسی'), GymSettings.currency,
+                    onTap: canEdit ? () => _editText('currency', Loc.t('Currency', 'کرنسی'), GymSettings.currency) : null),
+                _tile(Icons.chat_outlined, Loc.t('WhatsApp reminder message', 'واٹس ایپ یاد دہانی پیغام'), GymSettings.reminderTemplate,
+                    onTap: canEdit
+                        ? () => _editText('reminder_template', Loc.t('Reminder message', 'یاد دہانی پیغام'), GymSettings.reminderTemplate, lines: 5)
+                        : null),
+                _tile(Icons.receipt_outlined, Loc.t('Receipt footer', 'رسید کا آخری پیغام'), GymSettings.receiptNote,
+                    onTap: canEdit
+                        ? () => _editText('receipt_note', Loc.t('Receipt footer', 'رسید کا آخری پیغام'), GymSettings.receiptNote, lines: 2)
+                        : null),
+              ]),
+            ),
+            SectionTitle(Loc.t('App', 'ایپ')),
+            PCard(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(children: [
+                _tile(Icons.translate, Loc.t('Language', 'زبان'), Loc.isUrdu ? 'اردو' : 'English',
+                    trailing: OutlinedButton(
+                      onPressed: () => Loc.setLanguage(Loc.isUrdu ? 'en' : 'ur'),
+                      child: Text(Loc.isUrdu ? 'English' : 'اردو'),
+                    )),
+                _tile(Icons.dark_mode_outlined, Loc.t('Dark mode (premium black)', 'ڈارک موڈ'), '',
+                    trailing: Switch(value: ThemeManager.isDark.value, onChanged: (v) => ThemeManager.setDarkMode(v))),
+              ]),
+            ),
+            SectionTitle(Loc.t('Security (this device)', 'سیکیورٹی (یہ ڈیوائس)')),
+            PCard(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(Loc.t('Login method', 'لاگ اِن کا طریقہ'), style: TextStyle(color: pal.ink, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 10),
+                ChoiceChips<String>(
+                  options: [
+                    ('password', Loc.t('Password', 'پاس ورڈ')),
+                    if (_bio) ('fingerprint', Loc.t('Fingerprint', 'فنگر پرنٹ')),
+                    if (_bio) ('both', Loc.t('Both', 'دونوں')),
+                  ],
+                  value: (_bio || _loginMethod == 'password') ? _loginMethod : 'password',
+                  onChanged: _setLogin,
                 ),
+                const SizedBox(height: 8),
+                Text(
+                  Loc.t('With fingerprint, the app locks itself whenever it goes to the background.',
+                      'فنگر پرنٹ کے ساتھ ایپ پیچھے جاتے ہی خود لاک ہو جاتی ہے۔'),
+                  style: TextStyle(color: pal.muted, fontSize: 12),
+                ),
+              ]),
+            ),
+            if (Session.isAdmin) ...[
+              SectionTitle(Loc.t('Staff', 'اسٹاف')),
+              PCard(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: _tile(Icons.manage_accounts_outlined, Loc.t('Staff logins & roles', 'اسٹاف لاگ اِن اور رولز'),
+                    Loc.t('Owner, manager, reception', 'مالک، مینیجر، ریسپشن'),
+                    onTap: () => push(context, const UsersScreen()), color: pal.blue),
               ),
+            ],
+            SectionTitle(Loc.t('Online sync', 'آن لائن سنک')),
+            PCard(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(children: [
+                ValueListenableBuilder<SyncStatus>(
+                  valueListenable: GymSync.instance.status,
+                  builder: (context, s, _) => _tile(
+                    _syncOn ? Icons.cloud_done_outlined : Icons.cloud_off_outlined,
+                    _syncOn ? Loc.t('Sync is ON — mobile + PC', 'سنک آن ہے — موبائل + کمپیوٹر') : Loc.t('Sync is OFF', 'سنک بند ہے'),
+                    s.message.isEmpty
+                        ? (s.lastOkMs > 0
+                            ? '${Loc.t('Last sync', 'آخری سنک')}: ${Fmt.dateOf(DateTime.fromMillisecondsSinceEpoch(s.lastOkMs))} ${Fmt.time(s.lastOkMs)}'
+                            : '')
+                        : s.message,
+                    color: _syncOn ? pal.green : pal.muted,
+                    trailing: _syncOn
+                        ? IconButton(
+                            icon: Icon(Icons.sync, color: pal.gold),
+                            onPressed: () async {
+                              final m = await GymSync.instance.syncNow();
+                              if (context.mounted) toast(context, m);
+                            },
+                          )
+                        : null,
+                  ),
+                ),
+                if (Session.isAdmin)
+                  _tile(Icons.settings_ethernet, Loc.t('Cloud sync setup', 'کلاؤڈ سنک سیٹ اپ'),
+                      Loc.t('Connect phones & PCs of this gym', 'اس جم کے فون اور کمپیوٹر جوڑیں'), onTap: () async {
+                    await push(context, const CloudSetupScreen());
+                    _load();
+                  }),
+              ]),
             ),
-            FilledButton(onPressed: _saveShop, child: Text(Loc.t('SAVE SETTINGS', 'محفوظ کریں'))),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.of(context)
-                  .push(MaterialPageRoute(builder: (_) => const RoleGuard(allowed: {'admin'}, child: SetupGuideScreen())))
-                  .then((_) => _load()),
-              icon: const Icon(Icons.checklist_rtl),
-              label: Text(Loc.t('SHOP SETUP GUIDE (new shop)', 'دکان سیٹ اپ گائیڈ (نئی دکان)')),
+            SectionTitle(Loc.t('Backup', 'بیک اپ')),
+            PCard(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(children: [
+                _tile(Icons.backup_outlined, Loc.t('Export backup', 'بیک اپ بنائیں'),
+                    Loc.t('Save a full copy to Drive / WhatsApp / USB', 'مکمل کاپی ڈرائیو / واٹس ایپ / USB پر رکھیں'),
+                    onTap: _export),
+                _tile(Icons.history, Loc.t('Automatic daily backups', 'روزانہ خودکار بیک اپ'), Loc.t('Last 7 days on this device', 'اس ڈیوائس پر آخری 7 دن'),
+                    onTap: _autoBackups),
+                if (Session.isAdmin)
+                  _tile(Icons.settings_backup_restore, Loc.t('Restore from backup', 'بیک اپ سے بحال کریں'),
+                      Loc.t('Replace data on this device', 'اس ڈیوائس کا ڈیٹا بدلیں'),
+                      onTap: _restore, color: pal.red),
+              ]),
             ),
-          ], collapsible: true),
-        if (admin)
-          _card(Loc.t('Sale', 'سیل'), Icons.point_of_sale, [
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              value: _allowShort,
-              title: Text(Loc.t('Stock kam ho tab bhi sale karne den', 'اسٹاک کم ہو تب بھی سیل کرنے دیں')),
-              subtitle: Text(Loc.t(
-                  'ON: sale nahi rukegi, stock minus mein jayega aur warning aayegi. OFF: stock kam ho to sale block.',
-                  'آن: سیل نہیں رکے گی، اسٹاک مائنس میں جائے گا۔ آف: اسٹاک کم ہو تو سیل بلاک۔')),
-              onChanged: (v) async {
-                await StockPolicy.save(v);
-                if (mounted) setState(() => _allowShort = v);
-              },
-            ),
-          ]),
-        if (admin)
-          _card(Loc.t('Login Method', 'لاگ اِن کا طریقہ'), Icons.security, [
-            RadioListTile<String>(
-              value: 'password', groupValue: _loginMethod, onChanged: (v) => _setLoginMethod(v!),
-              title: Text(Loc.t('Password Only', 'صرف پاس ورڈ')),
-            ),
-            RadioListTile<String>(
-              value: 'fingerprint', groupValue: _loginMethod, onChanged: (v) => _setLoginMethod(v!),
-              title: Text(Loc.t('Fingerprint Only', 'صرف فنگر پرنٹ')),
-            ),
-            RadioListTile<String>(
-              value: 'both', groupValue: _loginMethod, onChanged: (v) => _setLoginMethod(v!),
-              title: Text(Loc.t('Both (Password + Fingerprint)', 'دونوں (پاس ورڈ + فنگر پرنٹ)')),
-            ),
-            RadioListTile<String>(
-              value: 'none', groupValue: _loginMethod, onChanged: (v) => _setLoginMethod(v!),
-              title: Text(Loc.t('No Password', 'بغیر پاس ورڈ')),
-              subtitle: Text(Loc.t('App opens directly once signed in', 'ایک بار لاگ اِن کے بعد ایپ سیدھی کھلے گی')),
-            ),
-            RadioListTile<String>(
-              value: 'otp', groupValue: _loginMethod, onChanged: (v) => _setLoginMethod(v!),
-              title: Text(Loc.t('OTP (Phone Number)', 'OTP (فون نمبر)')),
-              subtitle: Text(Loc.t('Needs Cloud Sync Setup; staff phone in Manage Users', 'Cloud Sync Setup ضروری؛ اسٹاف کا فون Manage Users میں')),
-            ),
-          ], collapsible: true),
-        // Pharmacy: technical / credit-limit wale cards nazar nahi aate (setting jo pehle thi wahi chalti hai).
-        if (!AppInfo.pharmacyMode)
-        _card(Loc.t('Secure Cloud Login (staff)', 'سیکیور کلاؤڈ لاگ اِن (اسٹاف)'), Icons.verified_user, [
-          FutureBuilder<bool>(
-            future: StaffAuth.isEnabled(),
-            builder: (context, snap) => SwitchListTile(
-              value: snap.data ?? false,
-              onChanged: !Session.isAdmin
-                  ? null
-                  : (v) async {
-                      await StaffAuth.setEnabled(v);
-                      if (mounted) setState(() {});
+            SectionTitle(Loc.t('About', 'تعارف')),
+            PCard(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  const GymLogo(size: 54),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(AppInfo.appName, style: TextStyle(color: pal.ink, fontWeight: FontWeight.w900, fontSize: 17)),
+                      Text('${AppInfo.tagline} · v1.0${AppInfo.build.isEmpty ? '' : ' (build ${AppInfo.build})'}',
+                          style: TextStyle(color: pal.muted, fontSize: 12.5)),
+                      Text('${AppInfo.business} · ${AppInfo.developer}', style: TextStyle(color: pal.gold, fontSize: 12.5)),
+                    ]),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () => launchUrl(
+                    Uri.parse('https://wa.me/${AppInfo.supportWhatsAppIntl}?text=${Uri.encodeComponent('Hanna Fitness support')}'),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                  icon: Icon(Icons.support_agent, color: pal.green),
+                  label: Text(Loc.t('WhatsApp support ${AppInfo.supportPhone}', 'واٹس ایپ سپورٹ ${AppInfo.supportPhone}')),
+                ),
+                if (_crash != null) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: _crash!));
+                      await CrashHandler.clearLastCrash();
+                      if (!mounted) return;
+                      setState(() => _crash = null);
+                      toast(context, Loc.t('Error report copied — send it to support', 'خرابی کی رپورٹ کاپی — سپورٹ کو بھیجیں'));
                     },
-              title: Text(Loc.t('Sign in to cloud with staff account', 'اسٹاف اکاؤنٹ سے کلاؤڈ میں سائن اِن')),
-              subtitle: Text(Loc.t(
-                  'OFF = current behaviour. ON needs the staff backend + App Check set up (see docs/STAFF_AUTH_BACKEND_SETUP.md); sync never falls back to anonymous.',
-                  'آف = موجودہ طریقہ۔ آن کے لیے اسٹاف بیک اینڈ + App Check سیٹ اپ ضروری ہے؛ سنک کبھی anonymous پر واپس نہیں جاتا۔')),
-            ),
-          ),
-        ]),
-        if (!AppInfo.pharmacyMode)
-        _card(Loc.t('Credit limit override', 'کریڈٹ لیمٹ اجازت'), Icons.lock, [
-          FutureBuilder<bool>(
-            future: CreditOverridePolicy.managersOnly(),
-            builder: (context, snap) => SwitchListTile(
-              value: snap.data ?? false,
-              onChanged: Session.isAdmin
-                  ? (v) async {
-                      await CreditOverridePolicy.setManagersOnly(v);
-                      if (mounted) setState(() {});
-                    }
-                  : null,
-              title: Text(Loc.t('Only admin/manager can "Save Anyway"', 'صرف ایڈمن/منیجر "پھر بھی محفوظ کریں" کر سکتا ہے')),
-              subtitle: Text(Loc.t(
-                  'OFF = any user can save a bill over the credit limit after confirming (current behaviour). ON = cashier cannot. Only admin can change this.',
-                  'آف = کوئی بھی صارف تصدیق کے بعد لیمٹ سے اوپر بل محفوظ کر سکتا ہے (موجودہ طریقہ)۔ آن = کیشیئر نہیں کر سکتا۔ صرف ایڈمن بدل سکتا ہے۔')),
-            ),
-          ),
-        ]),
-        if (!AppInfo.pharmacyMode)
-        _card(Loc.t('Server credit-limit check', 'سرور کریڈٹ لیمٹ چیک'), Icons.shield, [
-          FutureBuilder<bool>(
-            future: const CreditGuard().isEnabled(),
-            builder: (context, snap) => SwitchListTile(
-              value: snap.data ?? false,
-              onChanged: !Session.isAdmin
-                  ? null
-                  : (v) async {
-                      await const CreditGuard().setEnabled(v);
-                      if (mounted) setState(() {});
-                    },
-              title: Text(Loc.t('Check credit limit with the server (online)', 'کریڈٹ لیمٹ سرور سے چیک کریں (آن لائن)')),
-              subtitle: Text(Loc.t(
-                  'OFF = current behaviour. ON needs the reserveCredit function deployed (docs/SERVER_CREDIT_CHECK.md). Offline sales still go through and use only the local check.',
-                  'آف = موجودہ طریقہ۔ آن کے لیے reserveCredit فنکشن ڈیپلائے ہونا ضروری ہے۔ آف لائن سیل پھر بھی ہوتی ہے اور صرف مقامی چیک چلتا ہے۔')),
-            ),
-          ),
-        ]),
-        _card(Loc.t('My Login', 'میرا لاگ اِن'), Icons.person, [
-          _tf(TextEditingController(text: Session.username ?? ''), Loc.t('Current Username', 'موجودہ یوزر نیم'), enabled: false),
-          _tf(_newUsername, Loc.t('New Username', 'نیا یوزر نیم')),
-          _tf(_newPassword, Loc.t('New Password', 'نیا پاس ورڈ'), obscure: true),
-          FilledButton(onPressed: _updateLogin, child: Text(Loc.t('UPDATE LOGIN', 'لاگ اِن اپڈیٹ کریں'))),
-        ], collapsible: true),
-        _card(
-          PrinterService.isDesktop
-              ? Loc.t('Printer Setup (Windows / Network)', 'پرنٹر سیٹ اپ (ونڈوز / نیٹ ورک)')
-              : Loc.t('Printer Setup (58mm Bluetooth)', 'پرنٹر سیٹ اپ (58mm بلوٹوتھ)'),
-          Icons.print,
-          [
-          Row(children: [
-            Icon(Icons.circle, size: 12, color: _printerName.isEmpty ? ThemeManager.palette.red : ThemeManager.palette.teal),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(_printerName.isEmpty
-                  ? Loc.t('No printer selected', 'کوئی پرنٹر منتخب نہیں')
-                  : Loc.t('Selected: $_printerName', 'منتخب: $_printerName')),
+                    icon: Icon(Icons.bug_report_outlined, color: pal.amber),
+                    label: Text(Loc.t('Copy last error report', 'آخری خرابی کی رپورٹ کاپی کریں'), style: TextStyle(color: pal.amber)),
+                  ),
+                ],
+              ]),
             ),
           ]),
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(child: OutlinedButton(onPressed: _selectPrinter, child: Text(Loc.t('SELECT PRINTER', 'پرنٹر منتخب کریں')))),
-            const SizedBox(width: 10),
-            Expanded(child: OutlinedButton(onPressed: _testing ? null : _testPrint, child: Text(Loc.t('TEST PRINT', 'ٹیسٹ پرنٹ')))),
-          ]),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            value: _safePrint,
-            title: Text(Loc.t('Safe print (slower)', 'محفوظ پرنٹ (آہستہ)')),
-            subtitle: Text(Loc.t('ON karein agar print mein Chinese / kachra aaye (aam tor par OFF theek hai)', 'اگر پرنٹ میں چینی جیسا کچرا آئے تو آن رکھیں')),
-            onChanged: (v) async {
-              await PrinterService.instance.saveSafeMode(v);
-              if (mounted) setState(() => _safePrint = v);
-            },
-          ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            value: _compatPrint,
-            title: Text(Loc.t('Compatible print mode', 'کمپیٹیبل پرنٹ موڈ')),
-            subtitle: Text(Loc.t('Chinese / kachra aaye to ON karke TEST PRINT karein', 'چینی کچرا آئے تو آن کر کے ٹیسٹ پرنٹ کریں')),
-            onChanged: (v) async {
-              await PrinterService.instance.saveCompatibleMode(v);
-              if (mounted) setState(() => _compatPrint = v);
-            },
-          ),
-          OutlinedButton(
-            onPressed: _pickWidth,
-            child: Text(Loc.t('PRINT WIDTH: $_dots (garbled print? try 384)', 'پرنٹ چوڑائی: $_dots')),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            onPressed: _testing ? null : _testPrintText,
-            child: Text(Loc.t('PLAIN TEXT TEST (English only)', 'سادہ ٹیکسٹ ٹیسٹ (صرف انگریزی)')),
-          ),
-        ], collapsible: true),
-        // Kotlin Settings mein Backup/Export row (BackupExportScreen ka apna RoleGuard admin/manager).
-        if (Session.isAdminOrManager)
-          _card(Loc.t('Backup & Export', 'بیک اپ اور ایکسپورٹ'), Icons.save_outlined, [
-            Text(Loc.t('Encrypted backup, restore, CSV / PDF export', 'انکرپٹڈ بیک اپ، ریسٹور، CSV / PDF ایکسپورٹ')),
-            const SizedBox(height: 10),
-            OutlinedButton(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BackupExportScreen())),
-              child: Text(Loc.t('OPEN BACKUP & EXPORT', 'بیک اپ اور ایکسپورٹ کھولیں')),
-            ),
-          ]),
-        const SyncSection(),
-        _card(Loc.t('Appearance', 'ظاہری شکل'), Icons.dark_mode, [
-          ValueListenableBuilder<bool>(
-            valueListenable: ThemeManager.isDark,
-            builder: (_, dark, __) => SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              value: dark,
-              onChanged: (v) => ThemeManager.setDarkMode(v),
-              title: Text(Loc.t('Dark mode', 'ڈارک موڈ')),
-            ),
-          ),
-        ]),
-        _card(Loc.t('Language', 'زبان'), Icons.language, [
-          SegmentedButton<String>(
-            segments: const [ButtonSegment(value: 'en', label: Text('English')), ButtonSegment(value: 'ur', label: Text('اردو'))],
-            selected: {Loc.language.value},
-            onSelectionChanged: (s) => Loc.setLanguage(s.first),
-          ),
-        ]),
-        if (admin)
-          _card(Loc.t('Recycle Bin', 'ری سائیکل بِن'), Icons.restore_from_trash_outlined, [
-            Text(Loc.t('Restore deleted bills, expenses, payments, parties, items and workers',
-                'حذف کیے گئے بل، خرچے، ادائیگیاں، پارٹیاں، آئٹمز اور ورکرز واپس لائیں')),
-            const SizedBox(height: 10),
-            OutlinedButton(
-              onPressed: () => _open(const RecycleBinScreen()),
-              child: Text(Loc.t('OPEN RECYCLE BIN', 'ری سائیکل بن کھولیں')),
-            ),
-          ]),
-        if (admin)
-          _card(Loc.t('Users', 'یوزرز'), Icons.people, [
-            OutlinedButton(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const UserManagementScreen())),
-              child: Text(Loc.t('MANAGE USERS', 'یوزرز مینیج کریں')),
-            ),
-          ]),
-        _card(Loc.t('About & Privacy', 'ایپ اور پرائیویسی'), Icons.info_outline, [
-          Text(Loc.t('Privacy policy, support, delete my data', 'پرائیویسی پالیسی، سپورٹ، ڈیٹا ختم کروانا')),
-          const SizedBox(height: 10),
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AboutScreen())),
-            child: Text(Loc.t('OPEN ABOUT', 'کھولیں')),
-          ),
-        ]),
-        if (admin || DemoMode.enabled)
-          _card(Loc.t('Demo / Training shop', 'ڈیمو / ٹریننگ دکان'), Icons.school_outlined, [
-            Text(DemoMode.enabled
-                ? Loc.t('You are in the DEMO shop. Nothing here goes to the real shop, the cloud or other phones.',
-                    'آپ ڈیمو دکان میں ہیں۔ یہاں کی کوئی انٹری اصل دکان، کلاؤڈ یا دوسرے فون پر نہیں جاتی۔')
-                : Loc.t('A separate practice shop for staff training and testing. Real data, sync and backups are not touched.',
-                    'اسٹاف کی ٹریننگ اور ٹیسٹنگ کے لیے الگ دکان۔ اصل ڈیٹا، سنک اور بیک اپ کو ہاتھ نہیں لگتا۔')),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () => _switchDemo(!DemoMode.enabled),
-              icon: Icon(DemoMode.enabled ? Icons.storefront : Icons.school_outlined),
-              label: Text(DemoMode.enabled
-                  ? Loc.t('EXIT DEMO — back to real shop', 'ڈیمو بند کریں — اصل دکان')
-                  : Loc.t('OPEN DEMO SHOP', 'ڈیمو دکان کھولیں')),
-            ),
-          ]),
-        OutlinedButton.icon(
-          onPressed: _logout,
-          icon: Icon(Icons.logout, color: ThemeManager.palette.red),
-          label: Text(Loc.t('Logout', 'لاگ آؤٹ'), style: TextStyle(color: ThemeManager.palette.red)),
         ),
-      ]),
+      ),
     );
   }
 }

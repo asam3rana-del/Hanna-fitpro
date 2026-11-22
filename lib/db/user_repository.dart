@@ -1,115 +1,137 @@
-import 'package:sqflite/sqflite.dart';
+import '../models/models.dart';
+import '../utils/fmt.dart';
+import '../utils/password_hasher.dart';
+import 'gym_db.dart';
 
-import '../models/misc_entities.dart';
-import 'app_database.dart';
-import '../sync/sync_queue_helper.dart';
+/// Settings jo sirf ISI device ke liye hain (cloud par nahi jaate).
+const Set<String> localOnlySettings = {'login_method', 'last_user'};
 
-/// UserDao + AppSettingDao (Kotlin) ka Flutter roop.
-/// Phase 10: user/app_setting writes SyncQueueHelper se sync_queue mein jaate hain.
+/// Users (login) + settings table. AppLock isi ka `getSetting('login_method')` parhta hai.
 class UserRepository {
   UserRepository._();
   static final UserRepository instance = UserRepository._();
 
-  Future<Database> get _db => AppDatabase.instance.database;
+  final GymDb _db = GymDb.instance;
 
-  Future<User?> find(String username) async {
-    final db = await _db;
-    var rows = await db.query('users', where: 'username = ?', whereArgs: [username], limit: 1);
-    // Kotlin se aaye users: "Asam" / "asam" ka farq na ho — pehle exact, warna bari/chhoti harf nazar-andaz.
-    if (rows.isEmpty && username.isNotEmpty) {
-      rows = await db.query('users', where: 'username = ? COLLATE NOCASE', whereArgs: [username], limit: 1);
-    }
-    return rows.isEmpty ? null : User.fromMap(rows.first);
-  }
-
-  /// Kotlin `findByPhone`: `phone = ? AND active = 1` (OTP login). Khali phone kabhi match nahi.
-  Future<User?> findByPhone(String phone) async {
-    if (phone.trim().isEmpty) return null;
-    final rows = await (await _db)
-        .query('users', where: 'phone = ? AND active = 1', whereArgs: [phone.trim()], limit: 1);
-    return rows.isEmpty ? null : User.fromMap(rows.first);
-  }
-
-  /// Kotlin `activeCount` + `soleActiveUserOrNull`: active users (OTP ke pehle phone-link ke liye).
-  Future<List<User>> activeUsers() async {
-    final rows = await (await _db).query('users', where: 'active = 1', orderBy: 'username');
-    return rows.map(User.fromMap).toList();
-  }
-
-  Future<List<User>> all() async {
-    final rows = await (await _db).query('users', orderBy: 'username');
-    return rows.map(User.fromMap).toList();
-  }
-
-  /// User row + sync_queue ek transaction mein (Kotlin `SyncQueueHelper.enqueueUser`). passwordHash sync
-  /// nahi hota (userPayload mein nahi).
-  Future<void> upsert(User u) async {
-    final db = await _db;
-    await db.transaction((txn) async {
-      // Access rules sirf setPermissions se badalte hain: login / password / role ke upsert unhein na mitayen.
-      final cur = await txn.query('users', columns: ['permissions'], where: 'username = ?', whereArgs: [u.username], limit: 1);
-      final map = u.toMap();
-      map['permissions'] = cur.isEmpty ? u.permissions : ((cur.first['permissions'] as String?) ?? '');
-      await txn.insert('users', map, conflictAlgorithm: ConflictAlgorithm.replace);
-      await SyncQueueHelper.enqueueUser(txn, u.username);
-    });
-  }
-
-  /// Per-user access rules (JSON overrides, khali = role ke default) + sync_queue ek transaction mein.
-  Future<void> setPermissions(String username, String permissions) async {
-    final db = await _db;
-    await db.transaction((txn) async {
-      await txn.update('users', {'permissions': permissions}, where: 'username = ?', whereArgs: [username]);
-      await SyncQueueHelper.enqueueUser(txn, username);
-    });
-  }
-
-  Future<void> delete(String username) async {
-    final db = await _db;
-    await db.transaction((txn) async {
-      await txn.delete('users', where: 'username = ?', whereArgs: [username]);
-      await SyncQueueHelper.enqueueDelete(txn, 'user', SyncQueueHelper.userEntityId(username));
-    });
-  }
-
-  /// Username badalna: naya upsert + purana delete (tombstone) ek transaction mein.
-  Future<void> rename(User old, User updated) async {
-    final db = await _db;
-    await db.transaction((txn) async {
-      final renamed = updated.toMap();
-      renamed['permissions'] = old.permissions;
-      await txn.insert('users', renamed, conflictAlgorithm: ConflictAlgorithm.replace);
-      await SyncQueueHelper.enqueueUser(txn, updated.username);
-      if (updated.username != old.username) {
-        await txn.delete('users', where: 'username = ?', whereArgs: [old.username]);
-        await SyncQueueHelper.enqueueDelete(txn, 'user', SyncQueueHelper.userEntityId(old.username));
-      }
-    });
-  }
-
-  Future<void> insertAudit(String username, String action, String reference, String details) async {
-    await (await _db).insert('audit', {
-      'username': username,
-      'action': action,
-      'reference': reference,
-      'details': details,
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    });
-  }
+  // ---------------- settings ----------------
 
   Future<String?> getSetting(String key) async {
-    final rows = await (await _db).query('app_settings', where: 'key = ?', whereArgs: [key], limit: 1);
-    return rows.isEmpty ? null : rows.first['value'] as String;
+    final r = await _db.rows('SELECT value FROM settings WHERE id = ? AND deleted = 0', [key]);
+    if (r.isEmpty) return null;
+    final v = r.first['value'];
+    return v?.toString();
   }
 
-  /// Sirf `SyncQueueHelper.syncedAppSettingKeys` (shop_name, receipt_footer ...) queue hoti hain;
-  /// baaqi (printer, login_method ...) device-specific hain — enqueueAppSetting unhein chhod deta hai.
   Future<void> setSetting(String key, String value) async {
-    final db = await _db;
-    await db.transaction((txn) async {
-      await txn.insert('app_settings', AppSetting(key, value).toMap(),
-          conflictAlgorithm: ConflictAlgorithm.replace);
-      await SyncQueueHelper.enqueueAppSetting(txn, key, value);
+    final existing = await _db.rows('SELECT id FROM settings WHERE id = ?', [key]);
+    if (existing.isEmpty) {
+      await _db.insert('settings', {'id': key, 'value': value});
+    } else {
+      await _db.update('settings', key, {'value': value, 'deleted': 0});
+    }
+  }
+
+  // ---------------- users ----------------
+
+  static String idFor(String username) => username.trim().toLowerCase();
+
+  Future<bool> hasAnyUser() async =>
+      await _db.count('SELECT COUNT(*) FROM users WHERE deleted = 0') > 0;
+
+  Future<List<AppUser>> all() async {
+    final r = await _db.rows('SELECT * FROM users WHERE deleted = 0 ORDER BY role, username COLLATE NOCASE');
+    return r.map(AppUser.fromMap).toList();
+  }
+
+  Future<AppUser?> find(String username) async {
+    final r = await _db.rows('SELECT * FROM users WHERE id = ? AND deleted = 0 LIMIT 1', [idFor(username)]);
+    return r.isEmpty ? null : AppUser.fromMap(r.first);
+  }
+
+  /// Sahi username + password + active => user; warna null.
+  Future<AppUser?> authenticate(String username, String password) async {
+    final u = await find(username);
+    if (u == null || !u.active) return null;
+    final ok = await PasswordHasher.verify(password, u.passwordHash);
+    return ok ? u : null;
+  }
+
+  Future<void> create({
+    required String username,
+    required String displayName,
+    required String password,
+    required String role,
+  }) async {
+    final hash = await PasswordHasher.hash(password);
+    await _db.insert('users', {
+      'id': idFor(username),
+      'username': username.trim(),
+      'display_name': displayName.trim().isEmpty ? username.trim() : displayName.trim(),
+      'password_hash': hash,
+      'role': role,
+      'active': 1,
     });
   }
+
+  Future<void> setPassword(String username, String password) async {
+    final hash = await PasswordHasher.hash(password);
+    await _db.update('users', idFor(username), {'password_hash': hash});
+  }
+
+  Future<void> setRole(String username, String role) => _db.update('users', idFor(username), {'role': role});
+
+  Future<void> setActive(String username, bool active) =>
+      _db.update('users', idFor(username), {'active': active ? 1 : 0});
+
+  Future<void> rename(String username, String displayName) =>
+      _db.update('users', idFor(username), {'display_name': displayName.trim()});
+
+  Future<int> activeAdminCount() =>
+      _db.count("SELECT COUNT(*) FROM users WHERE deleted = 0 AND active = 1 AND role = 'admin'");
+}
+
+/// Gym ki settings ka cache (startup aur sync ke baad load). Saari screens yahin se parhti hain.
+class GymSettings {
+  GymSettings._();
+
+  static final Map<String, String> _cache = {};
+
+  static Future<void> load() async {
+    final r = await GymDb.instance.rows('SELECT id, value FROM settings WHERE deleted = 0');
+    _cache
+      ..clear()
+      ..addEntries(r.map((e) => MapEntry(mStr(e, 'id'), mStr(e, 'value'))));
+    Fmt.currency = currency;
+  }
+
+  static String get(String key, [String fallback = '']) {
+    final v = _cache[key];
+    return (v == null || v.isEmpty) ? fallback : v;
+  }
+
+  static Future<void> set(String key, String value) async {
+    await UserRepository.instance.setSetting(key, value);
+    _cache[key] = value;
+    if (key == 'currency') Fmt.currency = currency;
+  }
+
+  static String get gymName => get('gym_name', 'My Gym');
+  static String get gymPhone => get('gym_phone');
+  static String get gymAddress => get('gym_address');
+  static String get gymTagline => get('gym_tagline', 'Fitness  •  Strength  •  Lifestyle');
+  static String get currency => get('currency', 'Rs');
+  static String get receiptNote => get('receipt_note', 'Fee is non-refundable. Thank you for training with us!');
+  static String get memberPrefix => get('member_prefix', 'GM');
+  static int get reminderDays => int.tryParse(get('reminder_days', '5')) ?? 5;
+  static double get admissionFee => double.tryParse(get('admission_fee', '0')) ?? 0;
+
+  /// WhatsApp reminder ka template. {name} {gym} {date} {days} {dues} {plan} badal jaate hain.
+  static String get reminderTemplate => get(
+        'reminder_template',
+        'Assalam o Alaikum {name}!\n'
+            'Your {plan} membership at {gym} expires on {date}.\n'
+            'Please renew to keep training without a break. 💪\n'
+            '{dues}'
+            '— {gym}',
+      );
 }

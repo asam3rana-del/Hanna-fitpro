@@ -7,9 +7,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Windows / Linux par sqflite ki jagah FFI SQLite. Android / iOS par kuch nahi karta.
 ///
-/// Zaroori: sqflite_common_ffi ka default folder `.dart_tool/...` (current directory) hota hai — installed
-/// app mein wo likhne layak nahi / badalta rehta hai, data gum ho sakta hai. Isliye DB ko user ke
-/// AppData (getApplicationSupportDirectory) mein rakhte hain: `%APPDATA%\\<company>\\<app>\\databases`.
+/// DB user ke AppData mein: `%APPDATA%\Hanna Solutions\Hanna Fitness\databases` (Windows par
+/// `<company>\<app>` exe ke Runner.rc se aata hai — CI isay "Hanna Solutions" / "Hanna Fitness" likhta hai.
+/// KABHI na badlein, warna data "gum" lagega).
 Future<void> initDesktopDatabase() async {
   if (kIsWeb || !(Platform.isWindows || Platform.isLinux)) return;
   sqfliteFfiInit();

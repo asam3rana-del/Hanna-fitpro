@@ -6,7 +6,7 @@
 TARGET_SDK=36
 # Play Store App ID (2026-11-10 faisla). Kabhi na badlein — badalne se nayi app ban jati hai.
 # `namespace` (Kotlin/Java code ka package) jaan boojh kar wahi rehta hai; sirf applicationId badalta hai.
-APP_ID="${APP_ID:-com.hannasolutions.pos}"
+APP_ID="${APP_ID:-com.hannasolutions.fitness}"
 MIN_SDK=23   # flutter_secure_storage (backup password); Flutter ka apna minimum is se zyada ho to wahi rehta hai
 
 GRADLE=android/app/build.gradle
@@ -44,30 +44,21 @@ else
 fi
 echo "android.suppressUnsupportedCompileSdk=$TARGET_SDK" >> android/gradle.properties
 
-# Phase 12 (Print & Scan): Bluetooth printer + camera permissions. `flutter create` manifest mein
-# yeh nahi hoti; sirf tab jodo jab pehle se na hon.
 MANIFEST=android/app/src/main/AndroidManifest.xml
 
-# App ka naam (phone par icon ke neeche): Hanna Pharmacy POS.
-sed -i -E 's/android:label="[^"]*"/android:label="Hanna Pharmacy POS"/' "$MANIFEST"
-grep -q 'android:label="Hanna Pharmacy POS"' "$MANIFEST" || { echo "ERROR: app label not set"; exit 1; }
-if ! grep -q "BLUETOOTH_CONNECT" "$MANIFEST"; then
-  sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" \/>\n    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" \/>\n    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" \/>\n    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" \/>\n    <uses-permission android:name="android.permission.CAMERA" \/>/' "$MANIFEST"
-fi
+# App ka naam (phone par icon ke neeche): Hanna Fitness.
+sed -i -E 's/android:label="[^"]*"/android:label="Hanna Fitness"/' "$MANIFEST"
+grep -q 'android:label="Hanna Fitness"' "$MANIFEST" || { echo "ERROR: app label not set"; exit 1; }
 
-# Phase 6 (Parties): contact picker (flutter_contacts) — READ_CONTACTS, sirf tab jodo jab pehle se na ho.
+# Member phone: contact picker (flutter_contacts) — READ_CONTACTS, sirf tab jodo jab pehle se na ho.
 if ! grep -q "READ_CONTACTS" "$MANIFEST"; then
   sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.READ_CONTACTS" \/>/' "$MANIFEST"
 fi
 grep -n "uses-permission" "$MANIFEST"
 
-# --- R8 rules: google_mlkit_text_recognition refers to Chinese/Japanese/Korean/Devanagari option classes
-# that we don't bundle (Latin only). Tell R8 to ignore them, otherwise release build fails with "Missing class". ---
+# --- R8 rules file (build.gradle isay parhta hai; abhi koi khaas rule nahi chahiye). ---
 cat > android/app/proguard-rules.pro <<'EOF'
--dontwarn com.google.mlkit.vision.text.chinese.**
--dontwarn com.google.mlkit.vision.text.japanese.**
--dontwarn com.google.mlkit.vision.text.korean.**
--dontwarn com.google.mlkit.vision.text.devanagari.**
+# Hanna Fitness: no extra rules.
 EOF
 
 # --- Production signing is mandatory: never publish a release APK signed with the debug key. ---
@@ -194,31 +185,6 @@ for f in android/app/src/main/res/values/styles.xml android/app/src/main/res/val
   echo "=== $f ==="; cat "$f"
 done
 
-# --- Background sync (SyncKeepAlive / flutter_foreground_task): app minimize hone par bhi sync chale. ---
-for perm in FOREGROUND_SERVICE FOREGROUND_SERVICE_DATA_SYNC POST_NOTIFICATIONS WAKE_LOCK; do
-  if ! grep -q "android.permission.$perm\"" "$MANIFEST"; then
-    sed -i "0,/<manifest[^>]*>/s//&\n    <uses-permission android:name=\"android.permission.$perm\" \/>/" "$MANIFEST"
-  fi
-done
-if ! grep -q "flutter_foreground_task.service.ForegroundService" "$MANIFEST"; then
-  sed -i 's#</application>#    <service android:name="com.pravera.flutter_foreground_task.service.ForegroundService" android:foregroundServiceType="dataSync" android:exported="false" \/>\n    </application>#' "$MANIFEST"
-fi
-grep -n "FOREGROUND_SERVICE\|ForegroundService" "$MANIFEST" || { echo "ERROR: foreground service not added to manifest"; exit 1; }
-
-# --- PDF seedha customer ke WhatsApp chat mein (lib/services/whatsapp_pdf.dart, channel "ah_developer/wa") ---
-# Apna FileProvider (authority <applicationId>.slipshare) sirf cache/slips folder ke liye — share_plus ke provider par
-# bharosa nahi. Na ho to Dart side chupchap aam share sheet kholti hai.
-mkdir -p android/app/src/main/res/xml
-cat > android/app/src/main/res/xml/slip_paths.xml <<'XML'
-<?xml version="1.0" encoding="utf-8"?>
-<paths>
-    <cache-path name="slips" path="slips/" />
-</paths>
-XML
-if ! grep -q 'slip_paths' "$MANIFEST"; then
-  sed -i 's#</application>#    <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.slipshare" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/slip_paths" /></provider>\n    </application>#' "$MANIFEST"
-fi
-grep -q 'slip_paths' "$MANIFEST" || { echo "ERROR: slipshare FileProvider not added to manifest"; exit 1; }
 # WhatsApp ko queries mein (Android 11+ package visibility) — sirf tab jodo jab <queries> pehle se na ho.
 if ! grep -q 'com.whatsapp' "$MANIFEST"; then
   if grep -q '<queries>' "$MANIFEST"; then
@@ -229,361 +195,9 @@ if ! grep -q 'com.whatsapp' "$MANIFEST"; then
 fi
 grep -q 'com.whatsapp' "$MANIFEST" || { echo "ERROR: WhatsApp queries not added"; exit 1; }
 
-# --- Backup ki public Downloads copy (Kotlin BackupHelper.copyToDownloads): MediaStore MethodChannel ---
-# lib/backup/downloads_copy.dart isi channel ("ah_developer/downloads") ko bulata hai. Android 10+ par
-# permission nahi chahiye; 9 aur us se purane par WRITE_EXTERNAL_STORAGE (maxSdk 28) chahiye.
-if ! grep -q 'android.permission.WRITE_EXTERNAL_STORAGE' "$MANIFEST"; then
-  sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" \/>/' "$MANIFEST"
-fi
-case "$MAIN" in
-  *.kt)
-    PKG=$(grep -m1 '^package ' "$MAIN" | sed -E 's/^package[[:space:]]+//; s/[[:space:]]*;?[[:space:]]*$//')
-    [ -n "$PKG" ] || { echo "ERROR: MainActivity package nahi mila"; exit 1; }
-    cat > "$MAIN" <<KT
-package $PKG
-
-import android.annotation.SuppressLint
-import android.app.PendingIntent
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothSocket
-import android.content.BroadcastReceiver
-import android.content.ContentValues
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.content.pm.PackageManager
-import android.net.Uri
-import androidx.core.content.FileProvider
-import android.hardware.usb.UsbConstants
-import android.hardware.usb.UsbDevice
-import android.hardware.usb.UsbDeviceConnection
-import android.hardware.usb.UsbEndpoint
-import android.hardware.usb.UsbInterface
-import android.hardware.usb.UsbManager
-import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
-import io.flutter.embedding.android.FlutterFragmentActivity
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.MethodChannel
-import java.io.File
-import java.io.FileInputStream
-import java.io.OutputStream
-import java.util.UUID
-
-// FlutterFragmentActivity: local_auth (fingerprint). Channel: backup ki Downloads copy.
-class MainActivity : FlutterFragmentActivity() {
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ah_developer/downloads")
-            .setMethodCallHandler { call, result ->
-                if (call.method != "copyToDownloads") {
-                    result.notImplemented()
-                    return@setMethodCallHandler
-                }
-                val path = call.argument<String>("path")
-                val fileName = call.argument<String>("fileName")
-                val folder = call.argument<String>("folder")
-                if (path == null || fileName == null || folder == null) {
-                    result.error("bad_args", "path/fileName/folder chahiye", null)
-                    return@setMethodCallHandler
-                }
-                Thread {
-                    val ok = try {
-                        copyToDownloads(File(path), fileName, folder)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        false
-                    }
-                    runOnUiThread { result.success(ok) }
-                }.start()
-            }
-        setupUsbChannel(flutterEngine)
-        setupBtChannel(flutterEngine)
-        setupWaChannel(flutterEngine)
-    }
-
-    // ---- USB thermal printer (Kotlin PrinterHelper USB hissa: host mode, bulk OUT endpoint). Plugin nahi. ----
-    // Channel "ah_developer/usb": list / permission / open / write / close. Delays Dart mein (Bluetooth jaisa).
-    private var usbConn: UsbDeviceConnection? = null
-    private var usbIface: UsbInterface? = null
-    private var usbEp: UsbEndpoint? = null
-    private val usbPermAction = "com.ahdeveloper.USB_PERMISSION"
-
-    private fun usbMgr(): UsbManager? = getSystemService(Context.USB_SERVICE) as? UsbManager
-
-    private fun findBulkOut(d: UsbDevice): Pair<UsbInterface, UsbEndpoint>? {
-        for (i in 0 until d.interfaceCount) {
-            val itf = d.getInterface(i)
-            for (e in 0 until itf.endpointCount) {
-                val ep = itf.getEndpoint(e)
-                if (ep.type == UsbConstants.USB_ENDPOINT_XFER_BULK && ep.direction == UsbConstants.USB_DIR_OUT) return itf to ep
-            }
-        }
-        return null
-    }
-
-    private fun findUsb(vid: Int, pid: Int): UsbDevice? =
-        usbMgr()?.deviceList?.values?.firstOrNull { it.vendorId == vid && it.productId == pid }
-
-    private fun usbClose() {
-        try { val c = usbConn; val i = usbIface; if (c != null && i != null) c.releaseInterface(i) } catch (_: Exception) {}
-        try { usbConn?.close() } catch (_: Exception) {}
-        usbConn = null; usbIface = null; usbEp = null
-    }
-
-    @Suppress("UnspecifiedRegisterReceiverFlag")
-    private fun usbAskPermission(d: UsbDevice, cb: (Boolean) -> Unit) {
-        val m = usbMgr()
-        if (m == null) { cb(false); return }
-        if (m.hasPermission(d)) { cb(true); return }
-        val flags = if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
-        val pi = PendingIntent.getBroadcast(this, 0, Intent(usbPermAction).setPackage(packageName), flags)
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(ctx: Context, intent: Intent) {
-                if (intent.action == usbPermAction) {
-                    try { unregisterReceiver(this) } catch (_: Exception) {}
-                    cb(intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false))
-                }
-            }
-        }
-        val filter = IntentFilter(usbPermAction)
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        else registerReceiver(receiver, filter)
-        m.requestPermission(d, pi)
-    }
-
-    private fun setupUsbChannel(flutterEngine: FlutterEngine) {
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ah_developer/usb")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "list" -> {
-                        val out = ArrayList<Map<String, Any>>()
-                        for (d in (usbMgr()?.deviceList?.values ?: emptyList<UsbDevice>())) {
-                            if (findBulkOut(d) == null) continue
-                            var label = ""
-                            try { label = d.productName ?: "" } catch (_: Exception) {}
-                            if (label.isEmpty()) label = "USB printer " + d.vendorId + ":" + d.productId
-                            out.add(mapOf("vid" to d.vendorId, "pid" to d.productId, "name" to label))
-                        }
-                        result.success(out)
-                    }
-                    "permission" -> {
-                        val d = findUsb(call.argument<Int>("vid") ?: -1, call.argument<Int>("pid") ?: -1)
-                        if (d == null) result.success(false) else usbAskPermission(d) { ok -> result.success(ok) }
-                    }
-                    "open" -> {
-                        usbClose()
-                        val d = findUsb(call.argument<Int>("vid") ?: -1, call.argument<Int>("pid") ?: -1)
-                        val m = usbMgr()
-                        val fe = if (d != null) findBulkOut(d) else null
-                        if (d == null || m == null || fe == null || !m.hasPermission(d)) {
-                            result.success(false)
-                        } else {
-                            try {
-                                val c = m.openDevice(d)
-                                if (c == null) { result.success(false) }
-                                else {
-                                    c.claimInterface(fe.first, true)
-                                    usbConn = c; usbIface = fe.first; usbEp = fe.second
-                                    result.success(true)
-                                }
-                            } catch (e: Exception) { e.printStackTrace(); usbClose(); result.success(false) }
-                        }
-                    }
-                    "write" -> {
-                        val bytes = call.argument<ByteArray>("bytes")
-                        val c = usbConn
-                        val ep = usbEp
-                        if (bytes == null || c == null || ep == null) { result.success(false) }
-                        else Thread {
-                            var ok = true
-                            try {
-                                var off = 0
-                                while (off < bytes.size) {
-                                    val len = minOf(4096, bytes.size - off)
-                                    val slice = bytes.copyOfRange(off, off + len)
-                                    if (c.bulkTransfer(ep, slice, slice.size, 5000) < 0) { ok = false; break }
-                                    off += len
-                                }
-                            } catch (e: Exception) { e.printStackTrace(); ok = false }
-                            runOnUiThread { result.success(ok) }
-                        }.start()
-                    }
-                    "close" -> { usbClose(); result.success(true) }
-                    else -> result.notImplemented()
-                }
-            }
-    }
-
-    // ---- Bluetooth thermal printer: Kotlin PrinterHelper jaisa seedha RFCOMM socket (plugin nahi). ----
-    // print_bluetooth_thermal plugin se bhejne par tasveer wale (raster) bill tukron mein chhap rahe the;
-    // Kotlin ka seedha socket theek chhapta tha. Channel "ah_developer/bt": connect / write / close.
-    // Delays Dart mein (printer_service.dart), yahan sirf write + flush.
-    private var btSocket: BluetoothSocket? = null
-    private var btOut: OutputStream? = null
-    private val sppUuid: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-
-    private fun btClose() {
-        try { btOut?.flush() } catch (_: Exception) {}
-        try { btSocket?.close() } catch (_: Exception) {}
-        btSocket = null; btOut = null
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun btOpenSocket(device: BluetoothDevice): BluetoothSocket {
-        return try {
-            val socket = device.createRfcommSocketToServiceRecord(sppUuid)
-            socket.connect()
-            socket
-        } catch (e: Exception) {
-            // Sasti printers SDP ka jawab nahi deti: channel 1 par seedha insecure socket (Kotlin wala fallback).
-            val fallback = try {
-                val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                m.invoke(device, 1) as BluetoothSocket
-            } catch (re: Exception) {
-                throw e
-            }
-            fallback.connect()
-            fallback
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun setupBtChannel(flutterEngine: FlutterEngine) {
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ah_developer/bt")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "connect" -> {
-                        val mac = call.argument<String>("mac")
-                        Thread {
-                            var ok = false
-                            try {
-                                btClose()
-                                val adapter = BluetoothAdapter.getDefaultAdapter()
-                                if (adapter != null && mac != null) {
-                                    adapter.cancelDiscovery()
-                                    val sock = btOpenSocket(adapter.getRemoteDevice(mac))
-                                    btSocket = sock
-                                    btOut = sock.outputStream
-                                    ok = true
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                                btClose()
-                            }
-                            runOnUiThread { result.success(ok) }
-                        }.start()
-                    }
-                    "write" -> {
-                        val bytes = call.argument<ByteArray>("bytes")
-                        val out = btOut
-                        if (bytes == null || out == null) {
-                            result.success(false)
-                        } else Thread {
-                            var ok = true
-                            try {
-                                out.write(bytes)
-                                out.flush()
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                                ok = false
-                            }
-                            runOnUiThread { result.success(ok) }
-                        }.start()
-                    }
-                    "close" -> {
-                        Thread {
-                            btClose()
-                            runOnUiThread { result.success(true) }
-                        }.start()
-                    }
-                    else -> result.notImplemented()
-                }
-            }
-    }
-
-    // ---- PDF seedha WhatsApp chat mein: channel "ah_developer/wa", method sendPdf(path, digits, text). ----
-    // WhatsApp ka "jid" extra (number@s.whatsapp.net) chat khol deta hai, PDF laga hota hai — sirf Send dabana hai.
-    // Kisi bhi masle par false lautata hai; Dart aam share sheet khol deta hai. (Is block mein dollar sign nahi: heredoc.)
-    private fun setupWaChannel(flutterEngine: FlutterEngine) {
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ah_developer/wa")
-            .setMethodCallHandler { call, result ->
-                if (call.method != "sendPdf") {
-                    result.notImplemented()
-                    return@setMethodCallHandler
-                }
-                val path = call.argument<String>("path")
-                val digits = call.argument<String>("digits")
-                val text = call.argument<String>("text") ?: ""
-                if (path == null || digits == null || digits.isEmpty()) {
-                    result.success(false)
-                    return@setMethodCallHandler
-                }
-                try {
-                    val uri: Uri = FileProvider.getUriForFile(this, packageName + ".slipshare", File(path))
-                    var started = false
-                    for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
-                        try {
-                            packageManager.getPackageInfo(pkg, 0)
-                        } catch (e: PackageManager.NameNotFoundException) {
-                            continue
-                        }
-                        val i = Intent(Intent.ACTION_SEND)
-                        i.type = "application/pdf"
-                        i.setPackage(pkg)
-                        i.putExtra(Intent.EXTRA_STREAM, uri)
-                        if (text.isNotEmpty()) i.putExtra(Intent.EXTRA_TEXT, text)
-                        i.putExtra("jid", digits + "@s.whatsapp.net")
-                        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        startActivity(i)
-                        started = true
-                        break
-                    }
-                    result.success(started)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    result.success(false)
-                }
-            }
-    }
-
-    private fun copyToDownloads(source: File, fileName: String, folder: String): Boolean {
-        if (!source.exists()) return false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/" + folder)
-            }
-            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
-            val out = contentResolver.openOutputStream(uri) ?: return false
-            out.use { o -> FileInputStream(source).use { it.copyTo(o) } }
-            return true
-        }
-        @Suppress("DEPRECATION")
-        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), folder)
-        if (!dir.exists() && !dir.mkdirs()) return false
-        source.copyTo(File(dir, fileName), overwrite = true)
-        return true
-    }
-}
-KT
-    echo "=== MainActivity (Downloads channel) ==="; cat "$MAIN"
-    grep -q 'ah_developer/downloads' "$MAIN" || { echo "ERROR: Downloads channel not written"; exit 1; }
-    grep -q 'ah_developer/usb' "$MAIN" || { echo "ERROR: USB channel not written"; exit 1; }
-    grep -q 'ah_developer/bt' "$MAIN" || { echo "ERROR: Bluetooth channel not written"; exit 1; }
-    # USB host: required=false (USB na ho to bhi app install ho; Play Store filter na lage)
-    if ! grep -q 'android.hardware.usb.host' "$MANIFEST"; then
-      sed -i '0,/<manifest[^>]*>/s//&\n    <uses-feature android:name="android.hardware.usb.host" android:required="false" \/>/' "$MANIFEST"
-    fi
-    ;;
-  *) echo "WARNING: MainActivity Kotlin nahi hai — Downloads copy channel skip (Share se backup chalta rahega)";;
-esac
 
 
-# --- flutter_local_notifications (DueAlertService): core library desugaring zaroori hai. ---
+# --- Core library desugaring (kuch plugins ke liye; nuqsan nahi). ---
 if ! grep -q "coreLibraryDesugaring" "$GRADLE"; then
   case "$GRADLE" in
     *.kts)
@@ -599,13 +213,14 @@ fi
 grep -n "esugar" "$GRADLE"
 grep -q "esugar" "$GRADLE" || { echo "ERROR: core library desugaring not applied"; exit 1; }
 
-# --- Hanna Pharmacy POS: app icon (assets/branding/android/res -> generated project) ---
-# Legacy ic_launcher (har density) + Android 8+ adaptive icon (foreground + background rang).
-if [ -d assets/branding/android/res ]; then
-  cp -R assets/branding/android/res/. android/app/src/main/res/
-  MANIFEST_ICON=android/app/src/main/AndroidManifest.xml
-  grep -q 'android:icon="@mipmap/ic_launcher"' "$MANIFEST_ICON" \
-    || sed -i -E 's/android:icon="[^"]*"/android:icon="@mipmap\/ic_launcher"/' "$MANIFEST_ICON"
-  ls android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml >/dev/null || { echo "ERROR: app icon not copied"; exit 1; }
-  echo "=== App icon applied ==="
+# --- App icon: Hanna Fitness icon (app_icon/android). ---
+# Yahan is liye bhi ke "Import zip" workflow .github/ (build.yml) ko repo mein nahi daalta,
+# magar tools/ aur app_icon/ daal deta hai — icon build.yml badle baghair bhi lag jaye.
+if [ -d app_icon/android ]; then
+  RES=android/app/src/main/res
+  cp -R app_icon/android/. "$RES/"
+  rm -f "$RES"/mipmap-anydpi-v26/ic_launcher_round.xml
+  echo "App icon: Hanna Fitness"; ls "$RES"/mipmap-xxxhdpi
+else
+  echo "WARNING: app_icon/android nahi mila — purana (Flutter) icon rahega"
 fi

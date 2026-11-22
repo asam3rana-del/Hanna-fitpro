@@ -1,29 +1,49 @@
-# Hanna Solutions — Kiryana Store (Flutter)
+# Hanna Fitness — Premium Gym Management
 
-IBTISAAM Kiryana Store ka POS: Android + iPad/iOS + Windows, sirf Flutter. Kotlin se port poora ho chuka hai (100%); ab Flutter code hi asal source hai.
+**Hanna Solutions** ka gym software (Android + Windows PC + iPhone/iPad). Matte black + gold premium design,
+English / اردو, offline-first, aur **online sync (mobile + PC, multiple devices)**.
 
-## Folder structure
-- `lib/` — app (screens, db, sync, backup, services, models, utils, widgets, theme)
-- `test/` — Dart tests (`*_test.dart`)
-- `firebase/` — `firestore.rules` aur `firestore.indexes.json` (Firebase Console se deploy)
-- `tools/` — `android_fix.sh` (CI mein Android native hissa: printer/USB channel, Kotlin/AGP/Gradle versions, signing), `import_zip.sh`, `check_root.sh`, `port_status.py`
-- `docs/` — `APP_RULES.md` (roles, units, transactions), `GO_LIVE_CHECKLIST.md`, specs
-- `.github/workflows/` — `build.yml` (analyze/test + iOS/Android/Windows), `import-zip.yml`
-
-`android/`, `ios/`, `windows/` repo mein nahi hain; CI `flutter create` se banata hai.
+## Kya kya hai
+- **Dashboard** — active members, aaj ki haazri, aaj / mahine ki wasooli, jald khatam hone wali memberships, baqaya, munafa.
+- **Members** — photo, Member ID (GM-0001), phone (contacts se), CNIC, timing (morning/evening/ladies), goal, trainer,
+  blood group, emergency contact, notes. Search + filters (Active / Expiring / Expired / Dues / No plan / Inactive), CSV export.
+- **Memberships / Packages** — Monthly, Quarterly, 6 Months, Yearly, Personal Training, Day Pass (badal sakte hain);
+  admission fee, discount, advance renewal (pichhli khatam hote hi nayi shuru), freeze / extend, cancel.
+- **Fees** — partial payment, baqaya hisaab, Cash / JazzCash / Easypaisa / Bank / Card, receipt (80mm print / PDF / WhatsApp).
+- **Check-in** — Member ID / naam / phone likhein ya **QR member card** scan karein (USB / Bluetooth scanner); check-out;
+  expired / baqaya par foran warning + Renew.
+- **Member ID card** — ATM card size PDF, photo + QR code.
+- **Reminders** — expiring / expired / dues ki list, ek tap par tayyar WhatsApp message (Settings se message badlein).
+- **Trainers** — salary, PT commission %, assigned members.
+- **Expenses** — rent, bijli, salaries, equipment… mahine ke hisaab se.
+- **Reports** — aamdani, kharcha, net profit, 6 mahine ka chart, plan / payment method / expense breakdown.
+- **Body progress** — weight, body fat, chest, waist, arms, thigh, BMI.
+- **Staff logins** — Owner / Manager / Reception roles, fingerprint login + app lock.
+- **Backup** — roz khud-kaar backup (7 din), Export / Restore file.
+- **Online sync** — Firebase Firestore; har phone / PC par same Gym Code => sab devices par ek hi data. Internet na ho
+  to bhi poori app chalti hai; net aate hi khud sync.
 
 ## Build (GitHub Actions)
-- `Build` workflow har push par chalta hai (sirf `.md` / `docs/` badalne par nahi). Naya push aane par purani chalti run cancel ho jati hai.
-- Flutter ka version `build.yml` ke `FLUTTER_VERSION` mein ek hi jagah hai (abhi 3.24.0). Naya version aazmane ke liye Actions > Build > Run workflow mein `flutter_version` likhein (e.g. 3.47.2) — repo mein kuch badalna nahi parta. Naye Flutter par `tools/android_fix.sh` ke Kotlin/AGP/Gradle/compileSdk fixes dobara check karne parte hain.
-- Android APK ke liye secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD` (fixed signing key, taake update ho sake).
-- `pubspec.lock` repo mein nahi, is liye `flutter pub get` har build par `pubspec.yaml` ke caret ranges ke andar sab se naye packages uthata hai.
+1. GitHub par **naya repo** banayein (maslan `Hanna-Fitness`), default branch `main`.
+2. Is folder ka sab kuch (`.github` samait) repo mein push / upload karein.
+3. Actions > **Build** khud chalega: `android-apk`, `android-aab`, `windows-build` (exe + installer), `ios-build`.
+4. Android signing: repo Secrets mein `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_PASSWORD` (Hanna POS wale hi chal jayenge).
+5. Pehli build ke baad Actions se artifact **`pubspec-lock`** download kar ke `pubspec.lock` repo ke root mein commit karein
+   (is ke baad har build bilkul same package versions se banegi).
 
-## Code zip se update karna
-Zip mein exactly ek wrapper folder (`AH-Developer--main/`) hona chahiye; repo root par `.zip` daalein to `import-zip.yml` unzip karke files add/overwrite karta hai (delete nahi karta, aur `.github/` ko haath nahi lagata — workflow files GitHub par haath se badalni hongi). Phir `Build` workflow haath se chalayein.
+App ID: `com.hannasolutions.fitness` (Hanna POS ke saath alag install hoti hai). App ka naam: `lib/app_info.dart`,
+`tools/android_fix.sh`, `.github/workflows/build.yml`.
 
-## Checks (local)
-`flutter analyze && flutter test`, aur `bash tools/check_root.sh` (root par faltu cheezein pakadta hai).
+## Online sync setup (ek dafa)
+1. console.firebase.google.com par naya project.
+2. **Firestore Database** > Create > **Rules** mein `firebase/firestore.rules` paste > Publish.
+3. **Authentication** > Sign-in method > **Anonymous** ON.
+4. Project settings > Android app add karein (`com.hannasolutions.fitness`) > `google-services.json` download.
+5. App mein: More > Settings > **Cloud sync setup** > JSON paste > **Gym Code** (maslan `GYM-BHIKHI`) > Save & Sync.
+6. Doosre phone / PC par: pehli screen par **"Join an existing gym"** > wahi JSON + wahi Gym Code.
 
-
-## Staff authentication backend
-See `docs/STAFF_AUTH_BACKEND_SETUP.md` and `docs/STAFF_AUTH_TEST_PLAN.md`. Backend foundation only; Flutter login/sync migration and cashier server-side sale endpoint are not yet wired. Do not deploy claims rules to production yet.
+## Folder
+- `lib/db` — SQLite (har table sync-ready: id, updated_at, deleted, dirty)
+- `lib/sync/gym_sync.dart` — Firestore push / pull
+- `lib/screens` — saari screens; `lib/widgets/ui.dart` — premium design parts
+- `app_icon/` — Hanna Fitness icon (SVG + Android / iOS PNG); `windows_assets/app_icon.ico`

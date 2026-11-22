@@ -1,32 +1,53 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Mirrors ThemeManager.kt — poori app ka ek hi palette (light ya dark).
-/// Saari screens/widgets `ThemeManager.palette` se rang leti hain (Step 2 migration poori).
-/// `AppColors` mein ab sirf `fade()` / `fadeDark()` helpers bache hain.
+/// Hanna Fitness ka premium palette: matte black + champagne gold. Dark mode default hai.
 @immutable
 class AppPalette {
-  final Color bg, cardWhite, navy, teal, red, textDark, textMuted, border, amber, fieldFill;
-  // AppColors se migrate hue extra rang. `navyInk` = navy jab text/icon/border ke tor par use ho (dark mode mein saaf dikhe);
-  // `navy` sirf header/button jaisi surfaces ke liye.
-  final Color navyInk, navyLight, tealDark, redDark, blue, orange, purple;
-  final Color headerSubtitleColor, headerBadgeOverlay, savedHighlightBg;
-
-  // Flat-minimal design system: har category ka soft "chip" background + matching icon/text rang.
-  final Color flatPurpleBg, flatPurpleFg, flatCoralBg, flatCoralFg, flatBlueBg, flatBlueFg;
-  final Color flatPinkBg, flatPinkFg, flatTealBg, flatTealFg, flatAmberBg, flatAmberFg;
+  final Color bg; // screen background
+  final Color card; // cards / sheets
+  final Color cardAlt; // thora alag card (list rows, chips)
+  final Color header; // hero header (gradient ka pehla rang)
+  final Color header2; // hero header (gradient ka doosra rang)
+  final Color gold; // main accent
+  final Color goldDark;
+  final Color goldSoft; // gold ka halka background (chips, badges)
+  final Color ink; // main text
+  final Color muted; // secondary text
+  final Color border;
+  final Color field; // text field fill
+  final Color green, greenSoft, red, redSoft, amber, amberSoft, blue, blueSoft, purple, purpleSoft;
+  final bool isDark;
 
   const AppPalette({
-    required this.bg, required this.cardWhite, required this.navy, required this.teal, required this.red,
-    required this.textDark, required this.textMuted, required this.border, required this.amber,
-    required this.fieldFill, required this.headerSubtitleColor, required this.headerBadgeOverlay,
-    required this.savedHighlightBg,
-    required this.navyInk, required this.navyLight, required this.tealDark, required this.redDark,
-    required this.blue, required this.orange, required this.purple,
-    required this.flatPurpleBg, required this.flatPurpleFg, required this.flatCoralBg, required this.flatCoralFg,
-    required this.flatBlueBg, required this.flatBlueFg, required this.flatPinkBg, required this.flatPinkFg,
-    required this.flatTealBg, required this.flatTealFg, required this.flatAmberBg, required this.flatAmberFg,
+    required this.bg,
+    required this.card,
+    required this.cardAlt,
+    required this.header,
+    required this.header2,
+    required this.gold,
+    required this.goldDark,
+    required this.goldSoft,
+    required this.ink,
+    required this.muted,
+    required this.border,
+    required this.field,
+    required this.green,
+    required this.greenSoft,
+    required this.red,
+    required this.redSoft,
+    required this.amber,
+    required this.amberSoft,
+    required this.blue,
+    required this.blueSoft,
+    required this.purple,
+    required this.purpleSoft,
+    required this.isDark,
   });
+
+  /// Header / gold buttons par likha text.
+  Color get onHeader => const Color(0xFFF7F3E8);
+  Color get onGold => const Color(0xFF14120C);
 }
 
 class ThemeManager {
@@ -34,45 +55,66 @@ class ThemeManager {
 
   static const _keyDarkMode = 'dark_mode';
 
-  // Khatabook-style ledger palette (Kotlin LIGHT).
   static const light = AppPalette(
-    bg: Color(0xFFF4F5F9), cardWhite: Color(0xFFFFFFFF), navy: Color(0xFF0D1B4C), teal: Color(0xFF0F9B8E),
-    red: Color(0xFFE5484D), textDark: Color(0xFF14162B), textMuted: Color(0xFF7C8798), border: Color(0xFFE7E9F2),
-    amber: Color(0xFFFF8A00), fieldFill: Color(0xFFF4F5F9), headerSubtitleColor: Color(0xFFAEB8E0),
-    headerBadgeOverlay: Color(0x33FFFFFF), savedHighlightBg: Color(0xFFE9FBF9),
-    navyInk: Color(0xFF0D1B4C), navyLight: Color(0xFF1B2F6B), tealDark: Color(0xFF0C8F8A), redDark: Color(0xFFC93B40),
-    blue: Color(0xFF3B82F6), orange: Color(0xFFF5A524), purple: Color(0xFF8B5CF6),
-    flatPurpleBg: Color(0xFFE7E9FB), flatPurpleFg: Color(0xFF2D3796),
-    flatCoralBg: Color(0xFFFDEAE3), flatCoralFg: Color(0xFFC1440E),
-    flatBlueBg: Color(0xFFE3ECFE), flatBlueFg: Color(0xFF1450C7),
-    flatPinkBg: Color(0xFFFBEAF0), flatPinkFg: Color(0xFF993556),
-    flatTealBg: Color(0xFFDFF6EC), flatTealFg: Color(0xFF0A8A4E),
-    flatAmberBg: Color(0xFFFFEFD9), flatAmberFg: Color(0xFFB85C00),
+    bg: Color(0xFFF5F2EA),
+    card: Color(0xFFFFFFFF),
+    cardAlt: Color(0xFFFAF7F0),
+    header: Color(0xFF15151A),
+    header2: Color(0xFF2A2720),
+    gold: Color(0xFFB8912B),
+    goldDark: Color(0xFF8F6F1C),
+    goldSoft: Color(0xFFF4EBD3),
+    ink: Color(0xFF17161A),
+    muted: Color(0xFF6F6A5F),
+    border: Color(0xFFE6DFCF),
+    field: Color(0xFFF8F5EE),
+    green: Color(0xFF16804B),
+    greenSoft: Color(0xFFDDF3E6),
+    red: Color(0xFFC6363C),
+    redSoft: Color(0xFFFBE3E3),
+    amber: Color(0xFFB86E00),
+    amberSoft: Color(0xFFFFEFD6),
+    blue: Color(0xFF2563EB),
+    blueSoft: Color(0xFFE1EAFD),
+    purple: Color(0xFF7C3AED),
+    purpleSoft: Color(0xFFEDE5FD),
+    isDark: false,
   );
 
   static const dark = AppPalette(
-    bg: Color(0xFF0B0F1E), cardWhite: Color(0xFF161B2E), navy: Color(0xFF0D1B4C), teal: Color(0xFF14B8A6),
-    red: Color(0xFFF0666B), textDark: Color(0xFFEAEFF7), textMuted: Color(0xFF8B95A8), border: Color(0xFF262C42),
-    amber: Color(0xFFFF9E33), fieldFill: Color(0xFF161D2C), headerSubtitleColor: Color(0xFFAEB8E0),
-    headerBadgeOverlay: Color(0x33FFFFFF), savedHighlightBg: Color(0xFF12332F),
-    navyInk: Color(0xFFB8C4F2), navyLight: Color(0xFF1B2F6B), tealDark: Color(0xFF0F9F94), redDark: Color(0xFFD9575C),
-    blue: Color(0xFF60A5FA), orange: Color(0xFFFFB44D), purple: Color(0xFFA78BFA),
-    flatPurpleBg: Color(0xFF2C2F7A), flatPurpleFg: Color(0xFFC7CBF6),
-    flatCoralBg: Color(0xFF6E2E10), flatCoralFg: Color(0xFFF6C4A9),
-    flatBlueBg: Color(0xFF0E3A78), flatBlueFg: Color(0xFFBAD3F8),
-    flatPinkBg: Color(0xFF72243E), flatPinkFg: Color(0xFFF4C0D1),
-    flatTealBg: Color(0xFF0A4A34), flatTealFg: Color(0xFF8FE7C0),
-    flatAmberBg: Color(0xFF5C3A05), flatAmberFg: Color(0xFFFFC26A),
+    bg: Color(0xFF0C0C0F),
+    card: Color(0xFF17171C),
+    cardAlt: Color(0xFF1E1E24),
+    header: Color(0xFF1B1A1F),
+    header2: Color(0xFF2B2619),
+    gold: Color(0xFFD9B45A),
+    goldDark: Color(0xFFB8912B),
+    goldSoft: Color(0xFF332B17),
+    ink: Color(0xFFF3EFE4),
+    muted: Color(0xFF9D978A),
+    border: Color(0xFF2A2930),
+    field: Color(0xFF1E1E24),
+    green: Color(0xFF4ADE80),
+    greenSoft: Color(0xFF143222),
+    red: Color(0xFFF87171),
+    redSoft: Color(0xFF3A1717),
+    amber: Color(0xFFFBBF24),
+    amberSoft: Color(0xFF3A2C0E),
+    blue: Color(0xFF7AA7FF),
+    blueSoft: Color(0xFF16233F),
+    purple: Color(0xFFB794F6),
+    purpleSoft: Color(0xFF2A1F44),
+    isDark: true,
   );
 
   /// MaterialApp is par listen karta hai — toggle par poori app dobara banti hai.
-  static final ValueNotifier<bool> isDark = ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> isDark = ValueNotifier<bool>(true);
 
   static AppPalette get palette => isDark.value ? dark : light;
 
   static Future<void> load() async {
     final p = await SharedPreferences.getInstance();
-    isDark.value = p.getBool(_keyDarkMode) ?? false;
+    isDark.value = p.getBool(_keyDarkMode) ?? true;
   }
 
   static Future<void> setDarkMode(bool enabled) async {
@@ -81,10 +123,81 @@ class ThemeManager {
     isDark.value = enabled;
   }
 
-  /// Current setting ulat kar naya value wapas deta hai.
-  static Future<bool> toggleDarkMode() async {
-    final v = !isDark.value;
-    await setDarkMode(v);
-    return v;
+  /// Poori app ka ThemeData (sirf stable fields — naye Flutter versions mein bhi compile ho).
+  static ThemeData buildTheme() {
+    final p = palette;
+    final brightness = p.isDark ? Brightness.dark : Brightness.light;
+    final scheme = ColorScheme.fromSeed(seedColor: p.gold, brightness: brightness).copyWith(
+      primary: p.gold,
+      onPrimary: p.onGold,
+      secondary: p.goldDark,
+      surface: p.card,
+      onSurface: p.ink,
+      onSurfaceVariant: p.muted,
+      surfaceContainerLowest: p.card,
+      surfaceContainerLow: p.card,
+      surfaceContainer: p.card,
+      surfaceContainerHigh: p.card,
+      surfaceContainerHighest: p.field,
+      outline: p.muted,
+      outlineVariant: p.border,
+      error: p.red,
+    );
+    final base = ThemeData(
+      useMaterial3: true,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: p.bg,
+      canvasColor: p.card,
+      dividerColor: p.border,
+      fontFamily: 'Roboto',
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: p.gold,
+          foregroundColor: p.onGold,
+          minimumSize: const Size(48, 48),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w700, letterSpacing: 0.3),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: p.ink,
+          minimumSize: const Size(48, 48),
+          side: BorderSide(color: p.border),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: p.isDark ? const Color(0xFF2A2930) : const Color(0xFF1B1A1F),
+        contentTextStyle: const TextStyle(color: Colors.white),
+      ),
+    );
+    return base.copyWith(textTheme: base.textTheme.apply(bodyColor: p.ink, displayColor: p.ink));
+  }
+
+  /// Har text field ki premium decoration (component theme ki jagah — naye Flutter mein class naam badalte rehte hain).
+  static InputDecoration field(String label, {IconData? icon, String? hint, Widget? suffix, String? prefixText}) {
+    final p = palette;
+    OutlineInputBorder b(Color c, [double w = 1]) =>
+        OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: c, width: w));
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixText: prefixText,
+      prefixIcon: icon == null ? null : Icon(icon, color: p.gold, size: 20),
+      suffixIcon: suffix,
+      filled: true,
+      fillColor: p.field,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      labelStyle: TextStyle(color: p.muted),
+      hintStyle: TextStyle(color: p.muted),
+      border: b(p.border),
+      enabledBorder: b(p.border),
+      focusedBorder: b(p.gold, 1.6),
+      errorBorder: b(p.red),
+      focusedErrorBorder: b(p.red, 1.6),
+    );
   }
 }

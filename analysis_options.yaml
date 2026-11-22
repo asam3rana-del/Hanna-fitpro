@@ -1,15 +1,5 @@
-# Sab code lib/ aur test/ mein hai.
-# Root par galti se aa jane wali purani/stray copies (db, models, sync, screens)
-# analyze se bahar rakhi hain, taake CI "Target of URI doesn't exist" par fail na ho.
+# Hanna Fitness — sab code lib/ aur test/ mein hai.
+# CI: `flutter analyze --no-fatal-infos --no-fatal-warnings` (sirf errors build rokte hain).
 analyzer:
   exclude:
-    - db/**
-    - models/**
-    - sync/**
-    - screens/**
-    - services/**
-    - widgets/**
-    - utils/**
-    - theme/**
-    - backup/**
     - build/**
