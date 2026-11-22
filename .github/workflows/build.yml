@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ '**' ]   # har branch (main ya Raffey) par build
     # Sirf docs/markdown badalne par build (aur Actions ke minutes) zaya na hon.
     paths-ignore:
       - '**.md'
@@ -51,9 +51,9 @@ jobs:
         shell: bash
         run: |
           flutter pub get
-          if [ ! -f pubspec.lock ]; then
-            echo "::error::pubspec.lock is missing. Commit it to the repository root."
-            exit 1
+          if ! git ls-files --error-unmatch pubspec.lock >/dev/null 2>&1; then
+            # Naya project: lock abhi repo mein nahi. Build chalne do; artifact "pubspec-lock" download kar ke commit karein.
+            echo "::warning::pubspec.lock repo mein nahi — is run ki bani hui lock (artifact 'pubspec-lock') repo mein commit karein."
           elif ! git diff --quiet --ignore-cr-at-eol -- pubspec.lock; then
             if [ "$ACCEPT_NEW_LOCK" = "1" ]; then
               echo "::warning::pubspec.lock badli (accept_new_lockfile=true). Artifact 'pubspec-lock' download karke repo mein commit karein."
@@ -117,29 +117,35 @@ jobs:
       - run: flutter config --no-enable-swift-package-manager
 
       # Repo has no ios/ or android/ folders, so generate them.
-      # App ID: Android tools/android_fix.sh mein, iOS neeche "Set iOS app name" step mein (com.hannasolutions.medical).
-      - run: flutter create --platforms=ios,android --project-name ah_developer_kiryana_store .
+      # App ID: Android tools/android_fix.sh mein, iOS neeche "Set iOS app name" step mein (com.hannasolutions.fitness).
+      - run: flutter create --platforms=ios,android --project-name hanna_fitness .
 
       # Flutter 3.47 ka `flutter create` dependencies naye patch par upgrade kar deta hai — commit wali lock wapas.
-      - run: git checkout -- pubspec.yaml pubspec.lock
+      - run: git checkout -- pubspec.yaml && (git ls-files --error-unmatch pubspec.lock >/dev/null 2>&1 && git checkout -- pubspec.lock || true)
 
-      # App ka naam (home screen par): Hanna Pharmacy POS.
+      # App icon: Hanna Fitness icon. AppIcon.appiconset ki har PNG ko usi pixel size wali
+      # app_icon/ios/icon_<px>.png se badal do (file naam Flutter template ke hi rehte hain).
+      - name: Set iOS app icon (Hanna Fitness)
+        run: |
+          set -e
+          SET=ios/Runner/Assets.xcassets/AppIcon.appiconset
+          for f in "$SET"/*.png; do
+            w=$(sips -g pixelWidth "$f" | awk '/pixelWidth/{print $2}')
+            src="app_icon/ios/icon_${w}.png"
+            [ -f "$src" ] || { echo "::error::$src nahi mila ($f)"; exit 1; }
+            cp "$src" "$f"
+          done
+          ls -la "$SET"
+
+      # App ka naam (home screen par): Hanna Fitness.
       - name: Set iOS app name
         run: |
-          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'Hanna Pharmacy POS'" ios/Runner/Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleName 'Hanna Pharmacy POS'" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'Hanna Fitness'" ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName 'Hanna Fitness'" ios/Runner/Info.plist
           # App ID (bundle identifier) — Android ke saath ek jaisa. Kabhi na badlein.
-          sed -i '' -E 's/PRODUCT_BUNDLE_IDENTIFIER = com\.example\.[A-Za-z0-9_]+/PRODUCT_BUNDLE_IDENTIFIER = com.hannasolutions.medical/g' ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' -E 's/PRODUCT_BUNDLE_IDENTIFIER = com\.example\.[A-Za-z0-9_]+/PRODUCT_BUNDLE_IDENTIFIER = com.hannasolutions.fitness/g' ios/Runner.xcodeproj/project.pbxproj
           grep -m3 "PRODUCT_BUNDLE_IDENTIFIER" ios/Runner.xcodeproj/project.pbxproj
           ! grep -q "PRODUCT_BUNDLE_IDENTIFIER = com.example" ios/Runner.xcodeproj/project.pbxproj || { echo "::error::iOS bundle id nahi badla"; exit 1; }
-          # App icon: assets/branding/icon_1024.png se AppIcon set ki har file usi ke size par (sips, macOS).
-          if [ -f assets/branding/icon_1024.png ]; then
-            for f in ios/Runner/Assets.xcassets/AppIcon.appiconset/*.png; do
-              w=$(sips -g pixelWidth "$f" | awk '/pixelWidth/{print $2}')
-              sips -z "$w" "$w" assets/branding/icon_1024.png --out "$f" >/dev/null
-            done
-            echo "iOS app icon applied"
-          fi
 
       # iOS privacy strings: inke baghair camera (Bill Scan), gallery, contacts (party phone), Face ID
       # (fingerprint login) ya Bluetooth printer kholte hi iOS app ko foran band (crash) kar deta hai,
@@ -148,13 +154,13 @@ jobs:
         run: |
           P=ios/Runner/Info.plist
           add() { /usr/libexec/PlistBuddy -c "Delete :$1" "$P" 2>/dev/null || true; /usr/libexec/PlistBuddy -c "Add :$1 string '$2'" "$P"; }
-          add NSCameraUsageDescription "Bill scan karne ke liye camera chahiye."
-          add NSPhotoLibraryUsageDescription "Bill ki tasveer gallery se chunne ke liye."
-          add NSContactsUsageDescription "Party ka phone number contacts se bharne ke liye."
+          add NSCameraUsageDescription "Member ki tasveer lene ke liye camera chahiye."
+          add NSPhotoLibraryUsageDescription "Member ki tasveer gallery se chunne ke liye."
+          add NSContactsUsageDescription "Member ka phone number contacts se bharne ke liye."
           add NSFaceIDUsageDescription "Face ID se login aur app lock ke liye."
-          add NSBluetoothAlwaysUsageDescription "Bluetooth bill printer se print karne ke liye."
-          add NSBluetoothPeripheralUsageDescription "Bluetooth bill printer se print karne ke liye."
-          add NSLocalNetworkUsageDescription "WiFi / network bill printer se print karne ke liye."
+          add NSBluetoothAlwaysUsageDescription "Bluetooth printer se receipt print karne ke liye."
+          add NSBluetoothPeripheralUsageDescription "Bluetooth printer se receipt print karne ke liye."
+          add NSLocalNetworkUsageDescription "WiFi / network printer se receipt print karne ke liye."
           grep -c "UsageDescription" "$P"
 
       # google_mlkit_* (Bill Scan OCR) needs iOS 15.5+; Flutter 3.47 ka template minimum 15.0 hai.
@@ -175,9 +181,9 @@ jobs:
         shell: bash
         run: |
           flutter pub get
-          if [ ! -f pubspec.lock ]; then
-            echo "::error::pubspec.lock is missing. Commit it to the repository root."
-            exit 1
+          if ! git ls-files --error-unmatch pubspec.lock >/dev/null 2>&1; then
+            # Naya project: lock abhi repo mein nahi. Build chalne do; artifact "pubspec-lock" download kar ke commit karein.
+            echo "::warning::pubspec.lock repo mein nahi — is run ki bani hui lock (artifact 'pubspec-lock') repo mein commit karein."
           elif ! git diff --quiet --ignore-cr-at-eol -- pubspec.lock; then
             if [ "$ACCEPT_NEW_LOCK" = "1" ]; then
               echo "::warning::pubspec.lock badli (accept_new_lockfile=true). Artifact 'pubspec-lock' download karke repo mein commit karein."
@@ -219,11 +225,11 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # App ID: Android tools/android_fix.sh mein, iOS neeche "Set iOS app name" step mein (com.hannasolutions.medical).
-      - run: flutter create --platforms=ios,android --project-name ah_developer_kiryana_store .
+      # App ID: Android tools/android_fix.sh mein, iOS neeche "Set iOS app name" step mein (com.hannasolutions.fitness).
+      - run: flutter create --platforms=ios,android --project-name hanna_fitness .
 
       # Flutter 3.47 ka `flutter create` dependencies naye patch par upgrade kar deta hai — commit wali lock wapas.
-      - run: git checkout -- pubspec.yaml pubspec.lock
+      - run: git checkout -- pubspec.yaml && (git ls-files --error-unmatch pubspec.lock >/dev/null 2>&1 && git checkout -- pubspec.lock || true)
 
       # Kotlin / AGP / targetSdk: tools/android_fix.sh (Groovy aur naya KTS template dono).
 
@@ -231,9 +237,9 @@ jobs:
         shell: bash
         run: |
           flutter pub get
-          if [ ! -f pubspec.lock ]; then
-            echo "::error::pubspec.lock is missing. Commit it to the repository root."
-            exit 1
+          if ! git ls-files --error-unmatch pubspec.lock >/dev/null 2>&1; then
+            # Naya project: lock abhi repo mein nahi. Build chalne do; artifact "pubspec-lock" download kar ke commit karein.
+            echo "::warning::pubspec.lock repo mein nahi — is run ki bani hui lock (artifact 'pubspec-lock') repo mein commit karein."
           elif ! git diff --quiet --ignore-cr-at-eol -- pubspec.lock; then
             if [ "$ACCEPT_NEW_LOCK" = "1" ]; then
               echo "::warning::pubspec.lock badli (accept_new_lockfile=true). Artifact 'pubspec-lock' download karke repo mein commit karein."
@@ -247,11 +253,20 @@ jobs:
       - name: Android fixes + fixed signing key
         run: bash tools/android_fix.sh
         env:
-          # Hanna Pharmacy POS ka apna package — Hanna POS ke saath alag install hota hai.
-          APP_ID: com.hannasolutions.medical
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      # App icon: Hanna Fitness icon (app_icon/hanna_fitness_icon.svg se bane PNG).
+      # Purane phones: mipmap-*/ic_launcher.png. Android 8+: adaptive icon (navy background + H/barcode foreground).
+      - name: Set Android app icon (Hanna Fitness)
+        run: |
+          set -e
+          RES=android/app/src/main/res
+          cp -R app_icon/android/. "$RES/"
+          rm -f "$RES"/mipmap-anydpi-v26/ic_launcher_round.xml
+          grep -q 'android:icon="@mipmap/ic_launcher"' android/app/src/main/AndroidManifest.xml || { echo "::error::Manifest mein @mipmap/ic_launcher nahi"; exit 1; }
+          ls "$RES"/mipmap-*
 
       # Har build ka versionCode badhta hai, taake Android use update maane.
       # Gradle signing passwords System.getenv() se padhta hai, isliye yahan bhi env zaroori hai.
@@ -293,19 +308,19 @@ jobs:
           cache: true
 
       # Repo mein windows/ folder nahi hota, isliye generate karte hain (iOS / Android jaisa).
-      - run: flutter create --platforms=windows --project-name ah_developer_kiryana_store .
+      - run: flutter create --platforms=windows --project-name hanna_fitness .
 
       # Flutter 3.47 ka `flutter create` dependencies naye patch par upgrade kar deta hai — commit wali lock wapas.
-      - run: git checkout -- pubspec.yaml pubspec.lock
+      - run: git checkout -- pubspec.yaml && (git ls-files --error-unmatch pubspec.lock >/dev/null 2>&1 && git checkout -- pubspec.lock || true)
         shell: bash
 
       - name: flutter pub get (lockfile check)
         shell: bash
         run: |
           flutter pub get
-          if [ ! -f pubspec.lock ]; then
-            echo "::error::pubspec.lock is missing. Commit it to the repository root."
-            exit 1
+          if ! git ls-files --error-unmatch pubspec.lock >/dev/null 2>&1; then
+            # Naya project: lock abhi repo mein nahi. Build chalne do; artifact "pubspec-lock" download kar ke commit karein.
+            echo "::warning::pubspec.lock repo mein nahi — is run ki bani hui lock (artifact 'pubspec-lock') repo mein commit karein."
           elif ! git diff --quiet --ignore-cr-at-eol -- pubspec.lock; then
             if [ "$ACCEPT_NEW_LOCK" = "1" ]; then
               echo "::warning::pubspec.lock badli (accept_new_lockfile=true). Artifact 'pubspec-lock' download karke repo mein commit karein."
@@ -316,19 +331,154 @@ jobs:
             fi
           fi
 
-      # Window title: Hanna Pharmacy POS.
-      - name: Set Windows window title
+      # Windows runner ki tayyari (flutter create ke banaye hue files par):
+      #  1. Window title "Hanna Fitness", maximized khulti hai (restore = 1280x800).
+      #  2. Ek waqt mein sirf EK app: dusri dafa kholne par purani window aage aa jaye
+      #     (do copies ek hi SQLite DB par likhein to hisaab / sync bigar sakta hai).
+      #  3. Hanna Fitness icon (windows_assets/app_icon.ico = app_icon/hanna_fitness_icon.svg).
+      #  4. Runner.rc: CompanyName / ProductName. path_provider inhi se AppData folder banata hai:
+      #     %APPDATA%\Hanna Solutions\Hanna Fitness  (DB + settings). KABHI NA BADLEIN — badla to data "gum" lagega.
+      #     (purana com.example wala folder lib/db/desktop_db_init.dart khud naye mein copy kar deta hai.)
+      - name: Windows runner setup (title, single instance, icon, company name)
         shell: pwsh
-        run: (Get-Content windows/runner/main.cpp) -replace 'L"ah_developer_kiryana_store"', 'L"Hanna Pharmacy POS"' | Set-Content windows/runner/main.cpp
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $main = 'windows/runner/main.cpp'
+          $c = Get-Content $main -Raw
+          $c = $c -replace 'L"hanna_fitness"', 'L"Hanna Fitness"'
+          $c = $c -replace 'Win32Window::Size size\(\d+, \d+\)', 'Win32Window::Size size(1280, 800)'
+          $guard = @'
+          $1
+            // Hanna Fitness: sirf ek instance. Dusri dafa kholne par pehli window aage le aao.
+            HANDLE hanna_single = ::CreateMutexW(nullptr, TRUE, L"Local\\HannaFitness_SingleInstance");
+            if (hanna_single != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+              HWND existing = ::FindWindowW(L"FLUTTER_RUNNER_WIN32_WINDOW", L"Hanna Fitness");
+              if (existing != nullptr) {
+                if (::IsIconic(existing)) ::ShowWindow(existing, SW_RESTORE);
+                ::SetForegroundWindow(existing);
+              }
+              return EXIT_SUCCESS;
+            }
+          '@
+          $c = [regex]::new('(show_command\)\s*\{)').Replace($c, $guard, 1)
+          Set-Content $main $c -NoNewline
+          foreach ($must in 'L"Hanna Fitness"', 'HannaFitness_SingleInstance', 'size(1280, 800)') {
+            if (-not (Select-String -Path $main -SimpleMatch $must -Quiet)) { Write-Error "main.cpp patch fail: $must" }
+          }
+
+          # App poori screen (maximized) khule — POS PC par yehi chahiye. Restore karne par 1280x800.
+          $fw = 'windows/runner/flutter_window.cpp'
+          $f = Get-Content $fw -Raw
+          if ($f -match 'this->Show\(\);') {
+            $f = $f -replace 'this->Show\(\);', '::ShowWindow(this->GetHandle(), SW_SHOWMAXIMIZED);'
+            Set-Content $fw $f -NoNewline
+          } else {
+            Write-Warning "flutter_window.cpp mein this->Show() nahi mila — window maximized nahi khulegi"
+          }
+
+          Copy-Item windows_assets/app_icon.ico windows/runner/resources/app_icon.ico -Force
+
+          $rc = 'windows/runner/Runner.rc'
+          $r = Get-Content $rc -Raw
+          $r = $r -replace 'VALUE "CompanyName", "[^"]*"', 'VALUE "CompanyName", "Hanna Solutions"'
+          $r = $r -replace 'VALUE "ProductName", "[^"]*"', 'VALUE "ProductName", "Hanna Fitness"'
+          $r = $r -replace 'VALUE "FileDescription", "[^"]*"', 'VALUE "FileDescription", "Hanna Fitness"'
+          $r = $r -replace 'VALUE "LegalCopyright", "[^"]*"', 'VALUE "LegalCopyright", "Copyright (C) Hanna Solutions"'
+          Set-Content $rc $r -NoNewline
+          foreach ($must in '"CompanyName", "Hanna Solutions"', '"ProductName", "Hanna Fitness"') {
+            if (-not (Select-String -Path $rc -SimpleMatch $must -Quiet)) { Write-Error "Runner.rc patch fail: $must" }
+          }
+          Select-String -Path $rc -Pattern 'CompanyName|ProductName|FileDescription'
 
       - run: flutter build windows --release
+
+      # Naye PC par "VCRUNTIME140_1.dll / MSVCP140.dll was not found" na aaye:
+      # Visual C++ 2015-2022 runtime DLLs exe ke saath hi rakh do (app-local deployment, Flutter docs wala tareeqa).
+      # Backup ke liye vc_redist.x64.exe bhi zip mein — agar kabhi DLL wala raasta kaam na kare.
+      - name: Bundle Visual C++ runtime (VC++ 2015-2022 x64)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rel = "build/windows/x64/runner/Release"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { Write-Error "Visual Studio (C++ tools) runner par nahi mila" }
+          Write-Host "Visual Studio: $vs"
+
+          # VC\Redist\MSVC\<version>\x64\Microsoft.VC14x.CRT  (sab se naya version)
+          $verDir = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Directory |
+            Where-Object { $_.Name -match '^\d+(\.\d+)+$' } |
+            Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          $crt = Get-ChildItem (Join-Path $verDir.FullName "x64") -Directory -Filter "Microsoft.VC*.CRT" | Select-Object -First 1
+          if (-not $crt) { Write-Error "Microsoft.VC*.CRT folder nahi mila ($($verDir.FullName))" }
+          Write-Host "CRT: $($crt.FullName)"
+          Copy-Item (Join-Path $crt.FullName "*.dll") $rel -Force
+
+          $redist = Join-Path $verDir.FullName "vc_redist.x64.exe"
+          if (Test-Path $redist) { Copy-Item $redist $rel -Force } else { Write-Warning "vc_redist.x64.exe nahi mila (sirf DLLs bundle hongi)" }
+
+          @"
+          Hanna Fitness - Windows
+          ===================
+          1. Poora zip kisi folder mein Extract karein (zip ke andar se exe na chalayein).
+          2. hanna_fitness.exe chalayein.
+          3. Agar phir bhi 'VCRUNTIME140 / MSVCP140 .dll not found' aaye to isi folder ka
+             vc_redist.x64.exe ek dafa install karein, phir app dobara kholein.
+          Windows 10/11 64-bit zaroori hai.
+          "@ | Set-Content (Join-Path $rel "PEHLE_PARHEIN.txt") -Encoding UTF8
+
+      # Check: exe aur har plugin DLL jo bhi MSVC runtime DLL mangti hai, wo Release folder mein maujood ho.
+      # (api-ms-win-crt-* Windows 10/11 ke andar hi hoti hain, unhein nahi dekhte.)
+      - name: Verify no missing VC++ runtime DLLs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rel = "build/windows/x64/runner/Release"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $dumpbin = Get-ChildItem (Join-Path $vs "VC\Tools\MSVC") -Recurse -Filter dumpbin.exe |
+            Where-Object { $_.FullName -match 'Hostx64\\x64' } | Select-Object -First 1
+          $present = (Get-ChildItem $rel -Filter *.dll).Name | ForEach-Object { $_.ToLower() }
+          $missing = @()
+          Get-ChildItem $rel -Include *.exe,*.dll -Recurse | ForEach-Object {
+            $deps = & $dumpbin.FullName /nologo /dependents $_.FullName |
+              ForEach-Object { $_.Trim().ToLower() } |
+              Where-Object { $_ -match '^(vcruntime|msvcp|concrt|vcomp|vccorlib)\S*\.dll$' }
+            foreach ($d in $deps) {
+              if ($present -notcontains $d) { $missing += "$($_.Name) -> $d" }
+            }
+          }
+          Get-ChildItem $rel | Format-Table Name, Length
+          if ($missing.Count) { $missing | Sort-Object -Unique | ForEach-Object { Write-Host "::error::Missing: $_" }; exit 1 }
+          Write-Host "OK: saari VC++ runtime DLLs Release folder mein hain."
 
       # Poora Release folder (exe + dll + data) — sirf .exe akeli nahi chalti.
       - name: Zip Release folder
         shell: pwsh
-        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath AH-Kiryana-Store-windows.zip
+        run: Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath Hanna-Fitness-windows.zip
+
+      # Asaan install: HannaFitness-Setup-<version>.exe — Start menu + Desktop shortcut, admin ki zaroorat nahi,
+      # update ke waqt data (AppData) mehfooz. Inno Setup windows-2022 runner par pehle se hota hai.
+      - name: Build Windows installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = ((Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value)
+          $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          $src = (Resolve-Path build/windows/x64/runner/Release).Path
+          $out = Join-Path $PWD 'installer_out'
+          & $iscc "/DAppVersion=$ver" "/DSourceDir=$src" "/DOutDir=$out" windows_assets/installer.iss
+          if ($LASTEXITCODE -ne 0) { Write-Error "Inno Setup fail ($LASTEXITCODE)" }
+          Get-ChildItem $out
 
       - uses: actions/upload-artifact@v7
         with:
           name: windows-build
-          path: AH-Kiryana-Store-windows.zip
+          path: |
+            Hanna-Fitness-windows.zip
+            installer_out/HannaFitness-Setup-*.exe
