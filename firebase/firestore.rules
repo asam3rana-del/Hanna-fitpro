@@ -7,7 +7,8 @@ service cloud.firestore {
     match /gyms/{gymCode}/{table}/{rowId} {
       allow read, write: if request.auth != null
         && table in ['settings', 'users', 'plans', 'trainers', 'members', 'memberships',
-                     'payments', 'attendance', 'expenses', 'measurements'];
+                     'payments', 'attendance', 'expenses', 'measurements',
+                     'products', 'stock_moves', 'sales', 'sale_items'];
     }
     // Baqi sab band.
     match /{document=**} {

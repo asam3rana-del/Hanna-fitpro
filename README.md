@@ -4,7 +4,7 @@
 English / اردو, offline-first, aur **online sync (mobile + PC, multiple devices)**.
 
 ## Kya kya hai
-- **Dashboard** — active members, aaj ki haazri, aaj / mahine ki wasooli, jald khatam hone wali memberships, baqaya, munafa.
+- **Dashboard** — active members, aaj ki haazri, aaj ki kul aamdani (fees + counter), counter sale, stock alerts, jald khatam hone wali memberships, baqaya, munafa.
 - **Members** — photo, Member ID (GM-0001), phone (contacts se), CNIC, timing (morning/evening/ladies), goal, trainer,
   blood group, emergency contact, notes. Search + filters (Active / Expiring / Expired / Dues / No plan / Inactive), CSV export.
 - **Memberships / Packages** — Monthly, Quarterly, 6 Months, Yearly, Personal Training, Day Pass (badal sakte hain);
@@ -14,9 +14,16 @@ English / اردو, offline-first, aur **online sync (mobile + PC, multiple devi
   expired / baqaya par foran warning + Renew.
 - **Member ID card** — ATM card size PDF, photo + QR code.
 - **Reminders** — expiring / expired / dues ki list, ek tap par tayyar WhatsApp message (Settings se message badlein).
+- **Counter / Shop** — protein, mass gainer, creatine, drinks, shakes, accessories, apparel, services (locker, steam,
+  diet plan) aur combo deals. Tez bill (tiles / search / **barcode scanner**), **scoop / serving sale** (dabba khol kar
+  shake), discount, Cash / JazzCash / Easypaisa, **member ke account mein udhaar** (fees ke baqaye ke saath), bill print /
+  PDF / WhatsApp, bill cancel (stock wapas).
+- **Stock** — maal aaya (purchase: qty, khareed qeemat, supplier, **expiry date**), stock adjust, kam-stock aur
+  expiry alerts (FIFO), stock ki mallyat, har product ki history. Stock harkat se ginta hai — kai devices par bhi kabhi ghalat nahi.
+- **Counter reports** — aaj / hafta / mahina sale, naqad vs udhaar, munafa, best sellers, CSV.
 - **Trainers** — salary, PT commission %, assigned members.
 - **Expenses** — rent, bijli, salaries, equipment… mahine ke hisaab se.
-- **Reports** — aamdani, kharcha, net profit, 6 mahine ka chart, plan / payment method / expense breakdown.
+- **Reports** — fees + counter aamdani, kharche + stock khareed, net profit, 6 mahine ka chart, counter munafa, plan / payment method / expense breakdown.
 - **Body progress** — weight, body fat, chest, waist, arms, thigh, BMI.
 - **Staff logins** — Owner / Manager / Reception roles, fingerprint login + app lock.
 - **Backup** — roz khud-kaar backup (7 din), Export / Restore file.

@@ -6,6 +6,7 @@ import 'package:printing/printing.dart';
 
 import '../db/user_repository.dart';
 import '../models/models.dart';
+import '../models/shop_models.dart';
 import '../utils/fmt.dart';
 import '../utils/pdf_urdu.dart';
 
@@ -96,6 +97,73 @@ class PdfService {
     body();
     await UrduPdf.flush();
     final doc = pw.Document(title: 'Receipt ${payment.receiptNo}', author: GymSettings.gymName);
+    doc.addPage(pw.Page(
+      pageFormat: PdfPageFormat.roll80.copyWith(marginLeft: 12, marginRight: 12, marginTop: 14, marginBottom: 14),
+      build: (_) => body(),
+    ));
+    return doc.save();
+  }
+
+  // ---------------- counter bill ----------------
+
+  static Future<Uint8List> saleReceipt({required Sale sale, required List<SaleItem> items, double balance = 0}) async {
+    pw.Widget body() => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.stretch, children: [
+          pw.Center(child: _t(GymSettings.gymName.toUpperCase(), size: 14, bold: true)),
+          pw.SizedBox(height: 2),
+          if (GymSettings.gymAddress.isNotEmpty) pw.Center(child: _t(GymSettings.gymAddress, size: 7.5, color: _muted)),
+          if (GymSettings.gymPhone.isNotEmpty) pw.Center(child: _t('Ph: ${GymSettings.gymPhone}', size: 7.5, color: _muted)),
+          pw.SizedBox(height: 6),
+          pw.Container(height: 2, color: _gold),
+          pw.SizedBox(height: 6),
+          pw.Center(child: _t(sale.isVoid ? 'CANCELLED BILL' : 'SALE RECEIPT', size: 10, bold: true, color: _gold)),
+          pw.SizedBox(height: 6),
+          _row('Bill #', sale.receiptNo, bold: true),
+          _row('Date', Fmt.date(sale.date)),
+          _row('Customer', sale.buyer, bold: true),
+          if (sale.memberCode.isNotEmpty) _row('Member ID', sale.memberCode),
+          pw.SizedBox(height: 4),
+          pw.Divider(color: _line, thickness: 0.8),
+          for (final i in items)
+            pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(vertical: 2),
+              child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                pw.Expanded(child: _t('${i.name}\n${Fmt.decimal(i.qty)} x ${Fmt.number(i.price)}', size: 8.5)),
+                _t(Fmt.number(i.total), size: 8.5, bold: true),
+              ]),
+            ),
+          pw.Divider(color: _line, thickness: 0.8),
+          if (sale.discount > 0)
+            pw.Row(children: [
+              pw.Expanded(child: _t('Discount', size: 9, color: _muted)),
+              _t('-${Fmt.money(sale.discount)}', size: 9),
+            ]),
+          pw.Row(children: [
+            pw.Expanded(child: _t('TOTAL', size: 10, bold: true)),
+            _t(Fmt.money(sale.total), size: 12, bold: true),
+          ]),
+          pw.SizedBox(height: 2),
+          pw.Row(children: [
+            pw.Expanded(child: _t('Paid (${sale.method})', size: 9, color: _muted)),
+            _t(Fmt.money(sale.paid), size: 9, bold: true),
+          ]),
+          if (sale.credit > 0)
+            pw.Row(children: [
+              pw.Expanded(child: _t('On account', size: 9, color: _muted)),
+              _t(Fmt.money(sale.credit), size: 9, bold: true),
+            ]),
+          if (sale.memberId != null)
+            pw.Row(children: [
+              pw.Expanded(child: _t('Total balance', size: 9, color: _muted)),
+              _t(balance > 0.5 ? Fmt.money(balance) : 'Clear', size: 9, bold: true),
+            ]),
+          pw.SizedBox(height: 8),
+          if (sale.byUser.isNotEmpty) pw.Center(child: _t('Served by ${sale.byUser}', size: 7.5, color: _muted)),
+          pw.Center(child: _t('Thank you!  Powered by Hanna Solutions', size: 6.5, color: _muted)),
+        ]);
+
+    body();
+    await UrduPdf.flush();
+    final doc = pw.Document(title: 'Bill ${sale.receiptNo}', author: GymSettings.gymName);
     doc.addPage(pw.Page(
       pageFormat: PdfPageFormat.roll80.copyWith(marginLeft: 12, marginRight: 12, marginTop: 14, marginBottom: 14),
       build: (_) => body(),

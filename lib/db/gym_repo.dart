@@ -5,6 +5,7 @@ import '../services/session.dart';
 import '../sync/device_tag.dart';
 import '../utils/fmt.dart';
 import 'gym_db.dart';
+import 'shop_repo.dart';
 import 'user_repository.dart';
 
 GymDb get _db => GymDb.instance;
@@ -23,7 +24,9 @@ class MemberRepo {
       '(SELECT ms.end_date FROM memberships ms WHERE $_liveMs ORDER BY ms.end_date DESC LIMIT 1) AS end_date, '
       '(SELECT ms.plan_name FROM memberships ms WHERE $_liveMs ORDER BY ms.end_date DESC LIMIT 1) AS plan_name, '
       '((SELECT COALESCE(SUM(ms.total), 0) FROM memberships ms WHERE $_liveMs) - '
-      '(SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.member_id = m.id AND p.deleted = 0)) AS dues, '
+      '(SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.member_id = m.id AND p.deleted = 0) + '
+      // Counter ka udhaar (bill - jo us waqt diya) bhi member ke baqaye mein.
+      "(SELECT COALESCE(SUM(s.total - s.paid), 0) FROM sales s WHERE s.member_id = m.id AND s.deleted = 0 AND s.status != 'void')) AS dues, "
       '(SELECT MAX(a.date) FROM attendance a WHERE a.member_id = m.id AND a.deleted = 0) AS last_visit '
       'FROM members m WHERE m.deleted = 0 $where';
 
@@ -282,7 +285,11 @@ class PaymentRepo {
     );
     final paid = await _db.sum('SELECT COALESCE(SUM(amount), 0) FROM payments WHERE member_id = ? AND deleted = 0',
         [memberId]);
-    return billed - paid;
+    final shopCredit = await _db.sum(
+      "SELECT COALESCE(SUM(total - paid), 0) FROM sales WHERE member_id = ? AND deleted = 0 AND status != 'void'",
+      [memberId],
+    );
+    return billed + shopCredit - paid;
   }
 }
 
@@ -418,6 +425,11 @@ class DashboardStats {
   final List<MemberSummary> expiringList;
   final List<MemberSummary> duesList;
   final List<Attendance> todayVisits;
+  final double shopToday; // counter par aaj naqad
+  final double shopMonth; // counter par is mahine naqad
+  final double stockPurchasesMonth;
+  final int lowStock;
+  final int expiringStock;
 
   const DashboardStats({
     required this.totalMembers,
@@ -433,7 +445,18 @@ class DashboardStats {
     required this.expiringList,
     required this.duesList,
     required this.todayVisits,
+    this.shopToday = 0,
+    this.shopMonth = 0,
+    this.stockPurchasesMonth = 0,
+    this.lowStock = 0,
+    this.expiringStock = 0,
   });
+
+  /// Aaj ka kul naqad (fees + counter).
+  double get todayCash => todayCollection + shopToday;
+
+  /// Is mahine ka naqad munafa: fees + counter - kharche - maal ki khareed.
+  double get monthProfit => monthCollection + shopMonth - monthExpenses - stockPurchasesMonth;
 
   static Future<DashboardStats> load() async {
     final today = Fmt.today();
@@ -467,6 +490,9 @@ class DashboardStats {
     duesList.sort((a, b) => b.dues.compareTo(a.dues));
 
     final visits = await AttendanceRepo.onDate(todayYmd);
+    final products = await ShopRepo.products(activeOnly: true);
+    final low = products.where((p) => p.tracksStock && p.isLow).length;
+    final exp = (await ShopRepo.expiring(days: 30)).map((e) => e.product.id).toSet().length;
     final visitors = visits.map((e) => e.memberId).toSet().length;
 
     return DashboardStats(
@@ -483,6 +509,11 @@ class DashboardStats {
       expiringList: expList,
       duesList: duesList,
       todayVisits: visits,
+      shopToday: await ShopRepo.cashBetween(todayYmd, todayYmd),
+      shopMonth: await ShopRepo.cashBetween(monthStart, monthEnd),
+      stockPurchasesMonth: await ShopRepo.purchaseTotal(monthStart, monthEnd),
+      lowStock: low,
+      expiringStock: exp,
     );
   }
 }
@@ -499,6 +530,8 @@ class MonthReport {
   final Map<String, double> byMethod;
   final Map<String, double> byCategory;
   final Map<String, double> byPlan;
+  final ShopStats shop;
+  final double stockPurchases;
 
   /// Pichhle 6 mahine (purana pehle): (mahina, aamdani, kharcha).
   final List<(DateTime, double, double)> trend;
@@ -515,9 +548,14 @@ class MonthReport {
     required this.byCategory,
     required this.byPlan,
     required this.trend,
+    required this.shop,
+    required this.stockPurchases,
   });
 
-  double get profit => revenue - expenses;
+  /// Naqad hisaab: fees + counter ka naqad - kharche - counter ke maal ki khareed.
+  double get cashIn => revenue + shop.paid;
+  double get cashOut => expenses + stockPurchases;
+  double get profit => cashIn - cashOut;
 
   static Future<MonthReport> load(DateTime month) async {
     final from = Fmt.ymd(DateTime.utc(month.year, month.month, 1));
@@ -538,7 +576,11 @@ class MonthReport {
       final m = Fmt.addMonths(DateTime.utc(month.year, month.month, 1), -i);
       final f = Fmt.ymd(m);
       final t = Fmt.ymd(DateTime.utc(m.year, m.month + 1, 0));
-      trend.add((m, await PaymentRepo.total(f, t), await ExpenseRepo.total(f, t)));
+      trend.add((
+        m,
+        await PaymentRepo.total(f, t) + await ShopRepo.cashBetween(f, t),
+        await ExpenseRepo.total(f, t) + await ShopRepo.purchaseTotal(f, t),
+      ));
     }
 
     return MonthReport(
@@ -560,6 +602,8 @@ class MonthReport {
       byPlan: await grouped("SELECT plan_name AS k, SUM(total) AS v FROM memberships WHERE deleted = 0 "
           "AND status != 'cancelled' AND start_date >= ? AND start_date <= ? GROUP BY plan_name"),
       trend: trend,
+      shop: await ShopRepo.stats(from, to),
+      stockPurchases: await ShopRepo.purchaseTotal(from, to),
     );
   }
 }

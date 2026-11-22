@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../db/user_repository.dart';
 import '../models/models.dart';
+import '../models/shop_models.dart';
 import '../utils/fmt.dart';
 import '../utils/loc.dart';
 
@@ -72,6 +73,27 @@ class Messaging {
       ..writeln(balance > 0.5 ? 'Balance due: ${Fmt.money(balance)}' : 'Balance: Clear ✓')
       ..writeln()
       ..write('Thank you for training with us! 💪');
+    return b.toString();
+  }
+
+  /// Counter ka bill (WhatsApp).
+  static String saleText(Sale s, List<SaleItem> items, {double balance = 0}) {
+    final b = StringBuffer()
+      ..writeln('*${GymSettings.gymName}* — Bill')
+      ..writeln('Bill: ${s.receiptNo}  ·  ${Fmt.date(s.date)}')
+      ..writeln('Customer: ${s.buyer}${s.memberCode.isEmpty ? '' : ' (${s.memberCode})'}')
+      ..writeln();
+    for (final i in items) {
+      b.writeln('• ${i.name} × ${Fmt.decimal(i.qty)} = ${Fmt.money(i.total)}');
+    }
+    b.writeln();
+    if (s.discount > 0) b.writeln('Discount: ${Fmt.money(s.discount)}');
+    b
+      ..writeln('Total: *${Fmt.money(s.total)}*')
+      ..writeln('Paid: ${Fmt.money(s.paid)} (${s.method})');
+    if (s.credit > 0) b.writeln('Added to account: ${Fmt.money(s.credit)}');
+    if (s.memberId != null) b.writeln(balance > 0.5 ? 'Total balance due: ${Fmt.money(balance)}' : 'Balance: Clear ✓');
+    b.write('Thank you! 💪');
     return b.toString();
   }
 }

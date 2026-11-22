@@ -13,6 +13,7 @@ import 'home_shell.dart';
 import 'member_form_screen.dart';
 import 'member_profile_screen.dart';
 import 'members_screen.dart';
+import 'products_screen.dart';
 import 'membership_sheets.dart';
 import 'reminders_screen.dart';
 import 'reports_screen.dart';
@@ -69,6 +70,25 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoRefresh {
                   _hero(s),
                   SectionTitle(Loc.t('Today & this month', 'آج اور اس مہینے')),
                   _stats(s),
+                  if (s.lowStock > 0 || s.expiringStock > 0) ...[
+                    const SizedBox(height: 12),
+                    PCard(
+                      borderColor: pal.red.withValues(alpha: 0.5),
+                      onTap: () => push(context, const ProductsScreen(alertsFirst: true)),
+                      child: Row(children: [
+                        Icon(Icons.inventory_2_outlined, color: pal.red),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            Loc.t('Counter stock: ${s.lowStock} low · ${s.expiringStock} expiring within 30 days',
+                                'کاؤنٹر اسٹاک: ${s.lowStock} کم · ${s.expiringStock} کی ایکسپائری 30 دن میں'),
+                            style: TextStyle(color: pal.ink, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        Icon(Icons.chevron_right, color: pal.muted),
+                      ]),
+                    ),
+                  ],
                   if (s.expiringList.isNotEmpty) ...[
                     SectionTitle(
                       Loc.t('Expiring soon', 'جلد ختم ہونے والی'),
@@ -148,13 +168,14 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoRefresh {
           Row(children: [
             _heroNumber(Fmt.number(s.active), Loc.t('Active members', 'فعال ممبرز')),
             _heroNumber('${s.todayCheckins}', Loc.t('In today', 'آج آئے')),
-            _heroNumber(Fmt.number(s.todayCollection), Loc.t("Today's fees", 'آج کی فیس')),
+            _heroNumber(Fmt.number(s.todayCash), Loc.t("Today's cash", 'آج کی آمدنی')),
           ]),
           const SizedBox(height: 18),
           Wrap(spacing: 10, runSpacing: 10, children: [
             _heroAction(Icons.person_add_alt_1, Loc.t('New member', 'نیا ممبر'), () => push(context, const MemberFormScreen())),
             _heroAction(Icons.how_to_reg, Loc.t('Check-in', 'حاضری'), () => HomeShell.tab.value = 2),
             _heroAction(Icons.payments_outlined, Loc.t('Collect fee', 'فیس وصول'), _collectFee),
+            _heroAction(Icons.storefront, Loc.t('Counter sale', 'کاؤنٹر سیل'), () => HomeShell.tab.value = 3),
           ]),
         ]),
       );
@@ -222,19 +243,28 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoRefresh {
         onTap: () => push(context, const RemindersScreen(initialTab: 2)),
       ),
       StatCard(
+        icon: Icons.storefront,
+        label: Loc.t('Counter sale today', 'آج کاؤنٹر سیل'),
+        value: Fmt.money(s.shopToday),
+        hint: Loc.t('This month ${Fmt.money(s.shopMonth)}', 'اس مہینے ${Fmt.money(s.shopMonth)}'),
+        color: pal.blue,
+        soft: pal.blueSoft,
+        onTap: () => HomeShell.tab.value = 3,
+      ),
+      StatCard(
         icon: Icons.payments,
-        label: Loc.t('Collected this month', 'اس مہینے وصولی'),
+        label: Loc.t('Fees collected this month', 'اس مہینے فیس وصولی'),
         value: Fmt.money(s.monthCollection),
         color: pal.green,
         soft: pal.greenSoft,
-        onTap: () => HomeShell.tab.value = 3,
+        onTap: () => HomeShell.tab.value = 4,
       ),
       if (Session.canManage)
         StatCard(
           icon: Icons.trending_up,
           label: Loc.t('Profit this month', 'اس مہینے منافع'),
-          value: Fmt.money(s.monthCollection - s.monthExpenses),
-          hint: Loc.t('Expenses ${Fmt.money(s.monthExpenses)}', 'اخراجات ${Fmt.money(s.monthExpenses)}'),
+          value: Fmt.money(s.monthProfit),
+          hint: Loc.t('Fees + counter − expenses − stock', 'فیس + کاؤنٹر − اخراجات − اسٹاک'),
           color: pal.gold,
           soft: pal.goldSoft,
           onTap: () => push(context, const ReportsScreen()),

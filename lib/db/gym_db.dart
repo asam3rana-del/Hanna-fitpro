@@ -15,7 +15,7 @@ class GymDb {
   static final GymDb instance = GymDb._();
 
   static const fileName = 'hanna_fitness.db';
-  static const schemaVersion = 1;
+  static const schemaVersion = 2; // 2 = counter / shop tables
 
   /// Cloud ke saath sync hone wali tables (is tarteeb mein push / pull).
   static const syncTables = <String>[
@@ -29,6 +29,10 @@ class GymDb {
     'attendance',
     'expenses',
     'measurements',
+    'products',
+    'stock_moves',
+    'sales',
+    'sale_items',
   ];
 
   /// Har likhne par barhta hai — screens isay sun kar refresh hoti hain.
@@ -109,6 +113,26 @@ class GymDb {
           'date TEXT NOT NULL, note TEXT, paid_to TEXT, method TEXT, $_sync)',
       'CREATE TABLE IF NOT EXISTS measurements (id TEXT PRIMARY KEY, member_id TEXT NOT NULL, date TEXT NOT NULL, '
           'weight REAL, body_fat REAL, chest REAL, waist REAL, arms REAL, thigh REAL, note TEXT, $_sync)',
+      // ---- Counter / shop (v2) ----
+      'CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT, '
+          'kind TEXT NOT NULL DEFAULT \'item\', barcode TEXT, price REAL NOT NULL DEFAULT 0, cost REAL NOT NULL DEFAULT 0, '
+          'low_stock REAL NOT NULL DEFAULT 0, serving_name TEXT, servings_per_unit REAL NOT NULL DEFAULT 0, '
+          'serving_price REAL NOT NULL DEFAULT 0, parts TEXT, active INTEGER NOT NULL DEFAULT 1, notes TEXT, $_sync)',
+      'CREATE TABLE IF NOT EXISTS stock_moves (id TEXT PRIMARY KEY, product_id TEXT NOT NULL, qty REAL NOT NULL DEFAULT 0, '
+          'kind TEXT NOT NULL, ref_id TEXT, date TEXT NOT NULL, cost REAL NOT NULL DEFAULT 0, expiry TEXT, supplier TEXT, '
+          'note TEXT, $_sync)',
+      'CREATE TABLE IF NOT EXISTS sales (id TEXT PRIMARY KEY, member_id TEXT, customer_name TEXT, date TEXT NOT NULL, '
+          'subtotal REAL NOT NULL DEFAULT 0, discount REAL NOT NULL DEFAULT 0, total REAL NOT NULL DEFAULT 0, '
+          'paid REAL NOT NULL DEFAULT 0, method TEXT, receipt_no TEXT, note TEXT, by_user TEXT, '
+          'status TEXT NOT NULL DEFAULT \'done\', $_sync)',
+      'CREATE TABLE IF NOT EXISTS sale_items (id TEXT PRIMARY KEY, sale_id TEXT NOT NULL, product_id TEXT, name TEXT, '
+          'qty REAL NOT NULL DEFAULT 0, unit TEXT, price REAL NOT NULL DEFAULT 0, cost REAL NOT NULL DEFAULT 0, '
+          'total REAL NOT NULL DEFAULT 0, $_sync)',
+      'CREATE INDEX IF NOT EXISTS ix_moves_product ON stock_moves(product_id)',
+      'CREATE INDEX IF NOT EXISTS ix_moves_ref ON stock_moves(ref_id)',
+      'CREATE INDEX IF NOT EXISTS ix_sales_date ON sales(date)',
+      'CREATE INDEX IF NOT EXISTS ix_sales_member ON sales(member_id)',
+      'CREATE INDEX IF NOT EXISTS ix_items_sale ON sale_items(sale_id)',
       'CREATE INDEX IF NOT EXISTS ix_ms_member ON memberships(member_id, end_date)',
       'CREATE INDEX IF NOT EXISTS ix_pay_member ON payments(member_id)',
       'CREATE INDEX IF NOT EXISTS ix_pay_date ON payments(paid_on)',
@@ -159,6 +183,29 @@ class GymDb {
     await db.insert(table, row, conflictAlgorithm: ConflictAlgorithm.replace);
     notifyChanged();
     return id;
+  }
+
+  /// Kai nayi rows EK transaction mein (sale + items + stock: ya sab save, ya kuch nahi). Wapas: ids.
+  Future<List<String>> insertAll(List<(String, Map<String, Object?>)> rows) async {
+    final db = await database;
+    final now = nowMs();
+    final ids = <String>[];
+    await db.transaction((txn) async {
+      for (final (table, values) in rows) {
+        final row = Map<String, Object?>.from(values);
+        final given = row['id'];
+        final id = (given is String && given.isNotEmpty) ? given : newId();
+        row['id'] = id;
+        row['created_at'] = now;
+        row['updated_at'] = now;
+        row['deleted'] = 0;
+        row['dirty'] = 1;
+        await txn.insert(table, row, conflictAlgorithm: ConflictAlgorithm.replace);
+        ids.add(id);
+      }
+    });
+    notifyChanged();
+    return ids;
   }
 
   /// Maujooda row ke kuch fields badlo.

@@ -70,11 +70,19 @@ class _ReportsScreenState extends State<ReportsScreen> with AutoRefresh {
                       style: TextStyle(color: r.profit >= 0 ? pal.onHeader : pal.red, fontSize: 32, fontWeight: FontWeight.w900)),
                   const SizedBox(height: 14),
                   Row(children: [
-                    _mini(Loc.t('Revenue', 'آمدنی'), Fmt.money(r.revenue), pal.green),
-                    _mini(Loc.t('Expenses', 'اخراجات'), Fmt.money(r.expenses), pal.red),
+                    _mini(Loc.t('Cash in', 'آمدنی'), Fmt.money(r.cashIn), pal.green),
+                    _mini(Loc.t('Cash out', 'خرچ'), Fmt.money(r.cashOut), pal.red),
                     _mini(Loc.t('Margin', 'مارجن'),
-                        r.revenue <= 0 ? '-' : '${(r.profit / r.revenue * 100).toStringAsFixed(0)}%', pal.gold),
+                        r.cashIn <= 0 ? '-' : '${(r.profit / r.cashIn * 100).toStringAsFixed(0)}%', pal.gold),
                   ]),
+                  const SizedBox(height: 10),
+                  Text(
+                    Loc.t(
+                      'Fees ${Fmt.money(r.revenue)} + counter ${Fmt.money(r.shop.paid)}  ·  expenses ${Fmt.money(r.expenses)} + stock bought ${Fmt.money(r.stockPurchases)}',
+                      'فیس ${Fmt.money(r.revenue)} + کاؤنٹر ${Fmt.money(r.shop.paid)}  ·  اخراجات ${Fmt.money(r.expenses)} + اسٹاک خرید ${Fmt.money(r.stockPurchases)}',
+                    ),
+                    style: TextStyle(color: pal.onHeader.withValues(alpha: 0.6), fontSize: 12),
+                  ),
                 ]),
               ),
               const SizedBox(height: 14),
@@ -91,6 +99,22 @@ class _ReportsScreenState extends State<ReportsScreen> with AutoRefresh {
               }),
               SectionTitle(Loc.t('Last 6 months', 'پچھلے 6 مہینے')),
               PCard(child: _TrendChart(trend: r.trend)),
+              SectionTitle(Loc.t('Counter / shop', 'کاؤنٹر / شاپ')),
+              PCard(
+                child: Column(children: [
+                  _line(Loc.t('Total sale', 'کل سیل'), Fmt.money(r.shop.total), bold: true),
+                  _line(Loc.t('Bills', 'بل'), '${r.shop.count}'),
+                  _line(Loc.t('Cash received', 'نقد وصول'), Fmt.money(r.shop.paid)),
+                  _line(Loc.t('On members\' account', 'ممبرز کا ادھار'), Fmt.money(r.shop.credit)),
+                  _line(Loc.t('Cost of goods sold', 'بکے مال کی لاگت'), Fmt.money(r.shop.cost)),
+                  _line(Loc.t('Gross profit', 'مجموعی منافع'), Fmt.money(r.shop.grossProfit), bold: true, color: pal.green),
+                  _line(Loc.t('Stock purchased', 'اسٹاک خریدا'), Fmt.money(r.stockPurchases)),
+                  if (r.shop.best.isNotEmpty) ...[
+                    Divider(color: pal.border),
+                    for (final (n, q, t) in r.shop.best.take(5)) _line('$n  × ${Fmt.decimal(q)}', Fmt.money(t)),
+                  ],
+                ]),
+              ),
               SectionTitle(Loc.t('Sales by plan', 'پلان کے حساب سے')),
               _breakdown(r.byPlan, pal.gold),
               SectionTitle(Loc.t('Collection by method', 'وصولی کا طریقہ')),
@@ -111,6 +135,14 @@ class _ReportsScreenState extends State<ReportsScreen> with AutoRefresh {
             fit: BoxFit.scaleDown,
             child: Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 16)),
           ),
+        ]),
+      );
+
+  Widget _line(String k, String v, {bool bold = false, Color? color}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(children: [
+          Expanded(child: Text(k, style: TextStyle(color: pal.muted))),
+          Text(v, style: TextStyle(color: color ?? pal.ink, fontWeight: bold ? FontWeight.w900 : FontWeight.w700)),
         ]),
       );
 
@@ -189,9 +221,9 @@ class _TrendChart extends StatelessWidget {
       ),
       const SizedBox(height: 10),
       Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        _legend(pal.green, Loc.t('Revenue', 'آمدنی')),
+        _legend(pal.green, Loc.t('Cash in', 'آمدنی')),
         const SizedBox(width: 18),
-        _legend(pal.red, Loc.t('Expenses', 'اخراجات')),
+        _legend(pal.red, Loc.t('Cash out', 'خرچ')),
       ]),
     ]);
   }

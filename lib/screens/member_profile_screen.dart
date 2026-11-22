@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../db/gym_repo.dart';
+import '../db/shop_repo.dart';
 import '../models/models.dart';
+import '../models/shop_models.dart';
 import '../services/messaging.dart';
 import '../services/pdf_service.dart';
 import '../services/photo_service.dart';
@@ -13,6 +15,7 @@ import '../widgets/refresh.dart';
 import '../widgets/ui.dart';
 import 'member_form_screen.dart';
 import 'membership_sheets.dart';
+import 'shop_screen.dart' show showSaleReceipt;
 
 class MemberProfileScreen extends StatefulWidget {
   final String memberId;
@@ -31,6 +34,7 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> with AutoRefr
   List<Payment> _pays = [];
   List<Attendance> _att = [];
   List<Measurement> _meas = [];
+  List<Sale> _sales = [];
   List<Trainer> _trainers = [];
   bool _inGym = false;
   int _tab = 0;
@@ -61,6 +65,7 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> with AutoRefr
     final meas = await MeasurementRepo.forMember(widget.memberId);
     final today = await AttendanceRepo.todayFor(widget.memberId);
     final trainers = await TrainerRepo.all();
+    final sales = await ShopRepo.salesForMember(widget.memberId);
     if (!mounted) return;
     setState(() {
       _s = s;
@@ -69,6 +74,7 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> with AutoRefr
       _att = att;
       _meas = meas;
       _trainers = trainers;
+      _sales = sales;
       _inGym = today != null && today.checkOut == null;
     });
   }
@@ -160,6 +166,7 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> with AutoRefr
       2 => _payments(),
       3 => _attendance(),
       4 => _progress(s),
+      5 => _shop(),
       _ => _overview(s),
     };
     return Scaffold(
@@ -203,6 +210,7 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> with AutoRefr
                 (2, '${Loc.t('Payments', 'ادائیگیاں')} ${_pays.length}'),
                 (3, '${Loc.t('Attendance', 'حاضری')} ${_att.length}'),
                 (4, '${Loc.t('Progress', 'پیش رفت')} ${_meas.length}'),
+                (5, '${Loc.t('Counter', 'کاؤنٹر')} ${_sales.length}'),
               ],
               value: _tab,
               onChanged: (v) => setState(() => _tab = v),
@@ -469,6 +477,42 @@ class _MemberProfileScreenState extends State<MemberProfileScreen> with AutoRefr
                     if (ok) await PaymentRepo.delete(p.id);
                   },
                 ),
+            ]),
+          ),
+        ),
+    ]);
+  }
+
+  Widget _shop() {
+    if (_sales.isEmpty) {
+      return EmptyState(icon: Icons.storefront_outlined, title: Loc.t('No counter purchases', 'کاؤنٹر سے کوئی خریداری نہیں'));
+    }
+    return Column(children: [
+      for (final sale in _sales)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: PCard(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            onTap: () => showSaleReceipt(context, sale),
+            child: Row(children: [
+              Icon(sale.isVoid ? Icons.block : Icons.shopping_bag_outlined, color: sale.isVoid ? pal.red : pal.gold),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${sale.receiptNo} · ${Fmt.date(sale.date)}', style: TextStyle(color: pal.ink, fontWeight: FontWeight.w700)),
+                  Text(
+                    sale.credit > 0 && !sale.isVoid
+                        ? '${Loc.t('Paid', 'ادا')} ${Fmt.money(sale.paid)} · ${Loc.t('On account', 'ادھار')} ${Fmt.money(sale.credit)}'
+                        : '${Loc.t('Paid', 'ادا')} ${Fmt.money(sale.paid)} · ${sale.method}',
+                    style: TextStyle(color: pal.muted, fontSize: 12),
+                  ),
+                ]),
+              ),
+              Text(Fmt.money(sale.total),
+                  style: TextStyle(
+                      color: sale.isVoid ? pal.muted : pal.ink,
+                      fontWeight: FontWeight.w900,
+                      decoration: sale.isVoid ? TextDecoration.lineThrough : null)),
             ]),
           ),
         ),

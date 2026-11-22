@@ -18,6 +18,9 @@ import 'plans_screen.dart';
 import 'reminders_screen.dart';
 import 'reports_screen.dart';
 import 'settings_screen.dart';
+import 'shop_sales_screen.dart';
+import 'shop_screen.dart';
+import 'products_screen.dart';
 import 'trainers_screen.dart';
 import 'users_screen.dart';
 
@@ -25,7 +28,7 @@ import 'users_screen.dart';
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
-  /// Kisi bhi screen se tab badalne ke liye (0 dashboard, 1 members, 2 check-in, 3 fees, 4 more).
+  /// Kisi bhi screen se tab badalne ke liye (0 dashboard, 1 members, 2 check-in, 3 counter, 4 fees, 5 more).
   static final ValueNotifier<int> tab = ValueNotifier<int>(0);
 
   @override
@@ -43,6 +46,7 @@ class _HomeShellState extends State<HomeShell> {
         (Icons.space_dashboard_outlined, Icons.space_dashboard, Loc.t('Dashboard', 'ڈیش بورڈ')),
         (Icons.groups_outlined, Icons.groups, Loc.t('Members', 'ممبرز')),
         (Icons.how_to_reg_outlined, Icons.how_to_reg, Loc.t('Check-in', 'حاضری')),
+        (Icons.storefront_outlined, Icons.storefront, Loc.t('Counter', 'کاؤنٹر')),
         (Icons.payments_outlined, Icons.payments, Loc.t('Fees', 'فیس')),
         (Icons.grid_view_outlined, Icons.grid_view, Loc.t('More', 'مزید')),
       ];
@@ -54,8 +58,10 @@ class _HomeShellState extends State<HomeShell> {
       case 2:
         return const CheckInScreen();
       case 3:
-        return const PaymentsScreen();
+        return const ShopScreen();
       case 4:
+        return const PaymentsScreen();
+      case 5:
         return const MoreScreen();
       default:
         return const DashboardScreen();
@@ -87,6 +93,7 @@ class _HomeShellState extends State<HomeShell> {
             indicatorColor: pal.goldSoft,
             surfaceTintColor: Colors.transparent,
             height: 66,
+            labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
             onDestinationSelected: (i) => HomeShell.tab.value = i,
             destinations: [
               for (final it in _items)
@@ -244,6 +251,10 @@ class MoreScreen extends StatelessWidget {
     final tiles = <(IconData, String, String, Color, Color, VoidCallback)>[
       (Icons.notifications_active_outlined, Loc.t('Reminders', 'یاد دہانی'), Loc.t('Expiring · expired · dues', 'ختم ہونے والے · بقایا'),
           pal.amber, pal.amberSoft, () => push(context, const RemindersScreen())),
+      (Icons.inventory_2_outlined, Loc.t('Products & Stock', 'پروڈکٹس اور اسٹاک'), Loc.t('Purchase, expiry, low stock', 'خرید، ایکسپائری، کم اسٹاک'),
+          pal.green, pal.greenSoft, () => push(context, const ProductsScreen())),
+      (Icons.receipt_long_outlined, Loc.t('Counter Sales', 'کاؤنٹر سیل'), Loc.t('Bills, profit, best sellers', 'بل، منافع، زیادہ بکنے والی'),
+          pal.gold, pal.goldSoft, () => push(context, const ShopSalesScreen())),
       (Icons.workspace_premium_outlined, Loc.t('Plans & Packages', 'پلان اور پیکج'), Loc.t('Monthly, yearly, PT…', 'ماہانہ، سالانہ، PT…'),
           pal.gold, pal.goldSoft, () => push(context, const PlansScreen())),
       (Icons.sports_gymnastics, Loc.t('Trainers', 'ٹرینرز'), Loc.t('Staff, PT, commission', 'اسٹاف، PT، کمیشن'),
