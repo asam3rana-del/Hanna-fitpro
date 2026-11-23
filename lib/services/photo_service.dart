@@ -39,11 +39,11 @@ class PhotoService {
   }
 
   /// Camera / gallery se. Cancel / masla => null. Wapas: base64 JPEG.
-  static Future<String?> pick(ImageSource source) async {
+  static Future<String?> pick(ImageSource source, {double maxSide = 360, int quality = 72}) async {
     final picker = ImagePicker();
     AppLock.instance.suspendLock = true;
     try {
-      XFile? x = await picker.pickImage(source: source, maxWidth: 360, maxHeight: 360, imageQuality: 72);
+      XFile? x = await picker.pickImage(source: source, maxWidth: maxSide, maxHeight: maxSide, imageQuality: quality);
       if (x == null && defaultTargetPlatform == TargetPlatform.android) {
         try {
           final lost = await picker.retrieveLostData();

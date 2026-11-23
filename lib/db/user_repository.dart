@@ -123,6 +123,10 @@ class GymSettings {
   static String get receiptNote => get('receipt_note', 'Fee is non-refundable. Thank you for training with us!');
   static String get memberPrefix => get('member_prefix', 'GM');
   static int get reminderDays => int.tryParse(get('reminder_days', '5')) ?? 5;
+  /// Dashboard watermark (base64 JPEG), us ki shiddat (0.03–0.35) aur fit (contain / cover).
+  static String get watermark => get('watermark');
+  static double get watermarkOpacity => (double.tryParse(get('watermark_opacity', '0.08')) ?? 0.08).clamp(0.03, 0.35).toDouble();
+  static String get watermarkFit => get('watermark_fit', 'contain');
   static double get admissionFee => double.tryParse(get('admission_fee', '0')) ?? 0;
 
   /// WhatsApp reminder ka template. {name} {gym} {date} {days} {dues} {plan} badal jaate hain.

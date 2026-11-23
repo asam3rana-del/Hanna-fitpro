@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -11,6 +12,7 @@ import '../services/app_lock.dart';
 import '../services/backup_service.dart';
 import '../services/biometric.dart';
 import '../services/crash_handler.dart';
+import '../services/photo_service.dart';
 import '../services/session.dart';
 import '../sync/gym_sync.dart';
 import '../theme/theme_manager.dart';
@@ -18,6 +20,7 @@ import '../utils/fmt.dart';
 import '../utils/loc.dart';
 import '../widgets/refresh.dart';
 import '../widgets/ui.dart';
+import '../widgets/watermark.dart';
 import 'cloud_setup_screen.dart';
 import 'login_screen.dart';
 import 'users_screen.dart';
@@ -82,6 +85,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
         ),
       ]),
+    );
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _watermark() async {
+    var opacity = GymSettings.watermarkOpacity;
+    await showGymSheet<void>(
+      context,
+      title: Loc.t('Dashboard watermark', 'ڈیش بورڈ واٹر مارک'),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        final b = GymWatermark.bytes();
+        Future<void> apply(String key, String value) async {
+          await GymSettings.set(key, value);
+          GymWatermark.changes.value++;
+          setSheet(() {});
+        }
+
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text(
+            Loc.t('Your gym banner or logo shows lightly across the dashboard. It syncs to all devices.',
+                'جم کا بینر یا لوگو ڈیش بورڈ پر ہلکا سا نظر آئے گا۔ سب ڈیوائسز پر سنک ہو گا۔'),
+            style: TextStyle(color: pal.muted),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            height: 170,
+            decoration: BoxDecoration(color: pal.bg, borderRadius: BorderRadius.circular(16), border: Border.all(color: pal.border)),
+            clipBehavior: Clip.antiAlias,
+            child: b == null
+                ? Center(child: Icon(Icons.image_outlined, color: pal.muted, size: 40))
+                : Opacity(
+                    opacity: opacity < 0.25 ? 0.25 + opacity : opacity,
+                    child: Image.memory(b, fit: GymSettings.watermarkFit == 'cover' ? BoxFit.cover : BoxFit.contain),
+                  ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: () async {
+              final img = await PhotoService.pick(ImageSource.gallery, maxSide: 1600, quality: 70);
+              if (img == null) return;
+              await apply('watermark', img);
+            },
+            icon: const Icon(Icons.photo_library_outlined),
+            label: Text(b == null ? Loc.t('Choose image', 'تصویر چنیں') : Loc.t('Change image', 'تصویر بدلیں')),
+          ),
+          if (b != null) ...[
+            const SizedBox(height: 14),
+            Text(Loc.t('Strength ${(opacity * 100).round()}%', 'شدت ${(opacity * 100).round()}%'),
+                style: TextStyle(color: pal.ink, fontWeight: FontWeight.w700)),
+            Slider(
+              value: opacity,
+              min: 0.03,
+              max: 0.35,
+              divisions: 32,
+              onChanged: (v) => setSheet(() => opacity = v),
+              onChangeEnd: (v) => apply('watermark_opacity', v.toStringAsFixed(2)),
+            ),
+            ChoiceChips<String>(
+              options: [('contain', Loc.t('Full image', 'پوری تصویر')), ('cover', Loc.t('Fill screen', 'پوری اسکرین'))],
+              value: GymSettings.watermarkFit,
+              onChanged: (v) => apply('watermark_fit', v),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () => apply('watermark', ''),
+              icon: Icon(Icons.delete_outline, color: pal.red),
+              label: Text(Loc.t('Remove watermark', 'واٹر مارک ہٹائیں'), style: TextStyle(color: pal.red)),
+            ),
+          ],
+        ]);
+      }),
     );
     if (mounted) setState(() {});
   }
@@ -192,6 +266,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onTap: canEdit ? () => _editText('gym_address', Loc.t('Address', 'پتہ'), GymSettings.gymAddress) : null),
               ]),
             ),
+            if (canEdit) ...[
+              const SizedBox(height: 10),
+              PCard(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: _tile(
+                  Icons.wallpaper,
+                  Loc.t('Dashboard watermark', 'ڈیش بورڈ واٹر مارک'),
+                  GymSettings.watermark.isEmpty
+                      ? Loc.t('Put your gym banner / logo behind the dashboard', 'جم کا بینر / لوگو ڈیش بورڈ پر لگائیں')
+                      : Loc.t('On · ${(GymSettings.watermarkOpacity * 100).round()}%', 'آن · ${(GymSettings.watermarkOpacity * 100).round()}%'),
+                  onTap: _watermark,
+                ),
+              ),
+            ],
             SectionTitle(Loc.t('Membership rules', 'ممبرشپ کے اصول')),
             PCard(
               padding: const EdgeInsets.symmetric(vertical: 6),

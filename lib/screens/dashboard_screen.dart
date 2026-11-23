@@ -9,6 +9,7 @@ import '../utils/fmt.dart';
 import '../utils/loc.dart';
 import '../widgets/refresh.dart';
 import '../widgets/ui.dart';
+import '../widgets/watermark.dart';
 import 'home_shell.dart';
 import 'member_form_screen.dart';
 import 'member_profile_screen.dart';
@@ -60,7 +61,8 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoRefresh {
     final s = _s;
     return Scaffold(
       backgroundColor: pal.bg,
-      body: SafeArea(
+      body: Stack(children: [
+        SafeArea(
         child: s == null
             ? Center(child: CircularProgressIndicator(color: pal.gold))
             : RefreshIndicator(
@@ -143,6 +145,9 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoRefresh {
                 ]),
               ),
       ),
+        // Gym ka banner halka sa poori screen par (Settings > Gym profile > Dashboard watermark).
+        const Positioned.fill(child: GymWatermark()),
+      ]),
     );
   }
 
