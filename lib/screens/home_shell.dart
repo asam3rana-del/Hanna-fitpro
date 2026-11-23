@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_info.dart';
 import '../db/user_repository.dart';
+import '../services/license_service.dart';
 import '../services/session.dart';
 import '../sync/gym_sync.dart';
 import '../utils/loc.dart';
@@ -11,6 +12,7 @@ import 'checkin_screen.dart';
 import 'cloud_setup_screen.dart';
 import 'dashboard_screen.dart';
 import 'expenses_screen.dart';
+import 'license_screen.dart';
 import 'login_screen.dart';
 import 'members_screen.dart';
 import 'payments_screen.dart';
@@ -70,6 +72,14 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    // License khatam / tareekh ghalat => sirf license screen (data mehfooz, backup wahan se).
+    return ValueListenableBuilder<LicenseStatus>(
+      valueListenable: LicenseService.status,
+      builder: (context, lic, _) => lic.blocked ? const LicenseScreen(blocking: true) : _shell(context),
+    );
+  }
+
+  Widget _shell(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: HomeShell.tab,
       builder: (context, index, _) {

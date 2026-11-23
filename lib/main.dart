@@ -13,6 +13,7 @@ import 'screens/login_screen.dart';
 import 'services/app_lock.dart';
 import 'services/backup_service.dart';
 import 'services/crash_handler.dart';
+import 'services/license_service.dart';
 import 'services/session.dart';
 import 'sync/device_tag.dart';
 import 'sync/gym_sync.dart';
@@ -32,6 +33,7 @@ void main() async {
     await GymSettings.load();
     await Session.load();
     await _revalidateSession();
+    await LicenseService.init();
     await AppLock.instance.register(loginBuilder: (_) => const LoginScreen());
   } catch (e, st) {
     CrashHandler.record('Startup', e, st);

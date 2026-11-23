@@ -12,6 +12,7 @@ import '../services/app_lock.dart';
 import '../services/backup_service.dart';
 import '../services/biometric.dart';
 import '../services/crash_handler.dart';
+import '../services/license_service.dart';
 import '../services/photo_service.dart';
 import '../services/session.dart';
 import '../sync/gym_sync.dart';
@@ -22,6 +23,7 @@ import '../widgets/refresh.dart';
 import '../widgets/ui.dart';
 import '../widgets/watermark.dart';
 import 'cloud_setup_screen.dart';
+import 'license_screen.dart';
 import 'login_screen.dart';
 import 'users_screen.dart';
 
@@ -403,6 +405,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Loc.t('Replace data on this device', 'اس ڈیوائس کا ڈیٹا بدلیں'),
                       onTap: _restore, color: pal.red),
               ]),
+            ),
+            SectionTitle(Loc.t('License', 'لائسنس')),
+            PCard(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: ValueListenableBuilder<LicenseStatus>(
+                valueListenable: LicenseService.status,
+                builder: (context, s, _) {
+                  final (color, icon, title, sub) = licenseLook(s);
+                  return _tile(icon, title, '$sub\n${Loc.t('Device ID', 'ڈیوائس آئی ڈی')}: ${LicenseService.deviceId}',
+                      color: color, onTap: () => push(context, const LicenseScreen()));
+                },
+              ),
             ),
             SectionTitle(Loc.t('About', 'تعارف')),
             PCard(

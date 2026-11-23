@@ -25,6 +25,10 @@ English / اردو, offline-first, aur **online sync (mobile + PC, multiple devi
 - **Expenses** — rent, bijli, salaries, equipment… mahine ke hisaab se.
 - **Reports** — fees + counter aamdani, kharche + stock khareed, net profit, 6 mahine ka chart, counter munafa, plan / payment method / expense breakdown.
 - **Body progress** — weight, body fat, chest, waist, arms, thigh, BMI.
+- **License** — 14 din muft trial; phir Hanna Solutions ki license key (Monthly / 3 / 6 Months / Yearly / Lifetime),
+  har device ki apni **Device ID** par. Offline chalta hai (Ed25519 signature — naqli key nahi ban sakti), khatam hone
+  se 7 din pehle warning, 3 din mohlat, phir sirf license screen (data mehfooz, backup wahan se). Phone ki tareekh
+  peeche karne se trial lamba nahi hota. Key banane ka page aur private key repo mein NAHI hain.
 - **Staff logins** — Owner / Manager / Reception roles, fingerprint login + app lock.
 - **Backup** — roz khud-kaar backup (7 din), Export / Restore file.
 - **Online sync** — Firebase Firestore; har phone / PC par same Gym Code => sab devices par ek hi data. Internet na ho

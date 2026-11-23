@@ -11,6 +11,7 @@ import '../widgets/refresh.dart';
 import '../widgets/ui.dart';
 import '../widgets/watermark.dart';
 import 'home_shell.dart';
+import 'license_screen.dart';
 import 'member_form_screen.dart';
 import 'member_profile_screen.dart';
 import 'members_screen.dart';
@@ -69,6 +70,7 @@ class _DashboardScreenState extends State<DashboardScreen> with AutoRefresh {
                 color: pal.gold,
                 onRefresh: _load,
                 child: ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 24), children: [
+                  const LicenseBanner(),
                   _hero(s),
                   SectionTitle(Loc.t('Today & this month', 'آج اور اس مہینے')),
                   _stats(s),
